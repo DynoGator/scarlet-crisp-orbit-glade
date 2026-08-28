@@ -12,6 +12,8 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -27,8 +29,8 @@ import java.util.HashMap;
 import java.util.Locale;
 
 /**
- * Pure-Java USB host for HackRF One and HamGeek AD9363 (PlutoSDR+/LibreSDR).
- * HackRF: vendor requests + bulk IN 0x81. Pluto: USB detect + libiio TCP.
+ * Pure-Java USB host for HackRF One / PortaPack (Mayhem) and HamGeek AD9363.
+ * PortaPack is an SPI hat — USB is still HackRF 1d50:6089.
  */
 public final class UsbSdrEngine {
     static final String ACTION_USB_PERMISSION = "labs.dynogator.dslvzpdi.USB_PERMISSION";
@@ -53,6 +55,7 @@ public final class UsbSdrEngine {
     static final int VR_AMP = 17;
     static final int VR_LNA = 19;
     static final int VR_VGA = 20;
+    static final int VR_ANTENNA = 23;
     static final int MODE_OFF = 0;
     static final int MODE_RX = 1;
     static final int RT_OUT = 0x40;
@@ -61,8 +64,12 @@ public final class UsbSdrEngine {
     private final Context ctx;
     private final UsbManager usb;
     private final Fft fft = new Fft();
+    private final Demod demod = new Demod();
+    private final AudioSink audio = new AudioSink();
     private final float[] fftDb = new float[Fft.N];
     private final float[] bins = new float[Fft.BINS];
+    private final short[] pcm = new short[8192];
+    private final Handler main = new Handler(Looper.getMainLooper());
     private final Object lock = new Object();
 
     private UsbDevice device;
@@ -72,6 +79,7 @@ public final class UsbSdrEngine {
     private Thread rxThread;
     private volatile boolean rx;
     private volatile boolean open;
+    private volatile boolean listen;
     private volatile String kind = "none";
     private volatile String version = "";
     private volatile String board = "";
@@ -83,29 +91,49 @@ public final class UsbSdrEngine {
     private volatile boolean amp;
     private volatile long lastIqNs;
     private volatile long bytesIn;
-    private volatile String pendingHint = "";
+    private volatile String pendingHint = "hackrf";
+    private volatile boolean auto = true;
     private Socket iio;
     private BroadcastReceiver permReceiver;
+    private byte leftover;
+    private boolean haveLeftover;
+    private int fftSkip;
 
     UsbSdrEngine(Context ctx) {
         this.ctx = ctx.getApplicationContext();
         this.usb = (UsbManager) ctx.getSystemService(Context.USB_SERVICE);
         for (int i = 0; i < bins.length; i++) bins[i] = -110;
         register(ctx);
+        main.postDelayed(this::autoConnect, 350);
+        main.postDelayed(this::watchdog, 2000);
     }
 
     private void register(Context activity) {
         permReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context c, Intent intent) {
-                if (!ACTION_USB_PERMISSION.equals(intent.getAction())) return;
-                UsbDevice d = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
-                if (granted && d != null) {
-                    error = "";
-                    openUnlocked(d);
-                } else {
-                    error = "USB permission denied";
+                String a = intent.getAction();
+                if (ACTION_USB_PERMISSION.equals(a)) {
+                    UsbDevice d = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                    boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
+                    if (granted && d != null) {
+                        error = "";
+                        openUnlocked(d);
+                        if (auto) setRx(true);
+                    } else {
+                        error = "USB permission denied";
+                    }
+                } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
+                    UsbDevice d = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                    if (d != null && !"unknown".equals(classify(d))) {
+                        autoConnect();
+                    }
+                } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(a)) {
+                    UsbDevice d = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                    if (device != null && d != null && d.getDeviceId() == device.getDeviceId()) {
+                        error = "OTG detached";
+                        close();
+                    }
                 }
             }
         };
@@ -119,7 +147,25 @@ public final class UsbSdrEngine {
         }
     }
 
+    void autoConnect() {
+        if (open) {
+            if (!rx && auto) setRx(true);
+            return;
+        }
+        UsbDevice match = find(pendingHint);
+        if (match == null) match = find("hackrf");
+        if (match == null) return;
+        open(pendingHint == null || pendingHint.isEmpty() ? "hackrf" : pendingHint);
+    }
+
+    private void watchdog() {
+        if (auto && !open && (error == null || !error.contains("denied"))) autoConnect();
+        main.postDelayed(this::watchdog, 2500);
+    }
+
     void shutdown(Context activity) {
+        auto = false;
+        setListen(false);
         close();
         try {
             if (permReceiver != null) activity.unregisterReceiver(permReceiver);
@@ -148,10 +194,10 @@ public final class UsbSdrEngine {
     }
 
     String open(String hint) {
-        pendingHint = hint == null ? "" : hint;
-        UsbDevice match = find(hint);
+        pendingHint = hint == null || hint.isEmpty() ? "hackrf" : hint;
+        UsbDevice match = find(pendingHint);
         if (match == null) {
-            error = "No USB SDR. Plug HackRF One or HamGeek AD9363 via OTG.";
+            error = "No USB SDR. Plug HackRF One / PortaPack via USB-C OTG.";
             return fail(error);
         }
         if (!usb.hasPermission(match)) {
@@ -169,25 +215,29 @@ public final class UsbSdrEngine {
         if (usb == null) return null;
         String h = hint == null ? "" : hint.toLowerCase(Locale.US);
         UsbDevice any = null;
+        UsbDevice hack = null;
         for (UsbDevice d : usb.getDeviceList().values()) {
             String k = classify(d);
             if ("unknown".equals(k)) continue;
             any = d;
-            if (h.contains("hack") && "hackrf".equals(k)) return d;
+            if ("hackrf".equals(k)) hack = d;
+            if ((h.contains("hack") || h.contains("porta")) && "hackrf".equals(k)) return d;
             if ((h.contains("pluto") || h.contains("ad936") || h.contains("libre"))
                     && ("pluto".equals(k) || "libresdr".equals(k))) return d;
-            if (h.isEmpty()) return d;
         }
+        if (h.contains("hack") || h.isEmpty()) return hack != null ? hack : any;
         return any;
     }
 
     private String openUnlocked(UsbDevice d) {
-        close();
+        closeKeepAudio();
         String k = classify(d);
         device = d;
         kind = k;
         if ("hackrf".equals(k)) {
-            return openHackrf(d);
+            String r = openHackrf(d);
+            if (open && auto) setRx(true);
+            return r;
         }
         return openPluto(d);
     }
@@ -205,11 +255,18 @@ public final class UsbSdrEngine {
             if (n > 0) version = new String(ver, 0, n, StandardCharsets.UTF_8).trim();
             byte[] bid = new byte[1];
             if (conn.controlTransfer(RT_IN, VR_BOARD_ID, 0, 0, bid, 1, 500) == 1) {
-                board = "board-" + (bid[0] & 0xff);
+                int id = bid[0] & 0xff;
+                board = id == 2 ? "HackRF One" : id == 1 ? "Jawbreaker" : "board-" + id;
+            }
+            String name = safeName(d);
+            if (name.toLowerCase(Locale.US).contains("porta")) {
+                board = "PortaPack · " + board;
             }
             applyHackrfConfig();
             open = true;
             error = "";
+            haveLeftover = false;
+            demod.reset();
             return statusJson(true, "HackRF ready " + version);
         } catch (Exception e) {
             return fail("HackRF: " + e.getMessage());
@@ -254,7 +311,7 @@ public final class UsbSdrEngine {
                 }
             }
         }
-        return "IIO TCP 192.168.2.1:30431 unreachable — set usb_ether=ecm on the dongle ("
+        return "IIO TCP 192.168.2.1:30431 unreachable — set usb_ether=ecm ("
                 + (last == null ? "timeout" : last.getClass().getSimpleName())
                 + ")";
     }
@@ -269,13 +326,31 @@ public final class UsbSdrEngine {
         byte[] sr = new byte[8];
         ByteBuffer.wrap(sr).order(ByteOrder.LITTLE_ENDIAN).putInt(sampleRate).putInt(1);
         conn.controlTransfer(RT_OUT, VR_SAMPLE_RATE, 0, 0, sr, 8, 500);
-        int bw = sampleRate <= 2_500_000 ? 1_750_000 : Math.min(sampleRate, 28_000_000);
+        int bw = basebandBw(sampleRate);
         conn.controlTransfer(RT_OUT, VR_BB_FILTER, bw & 0xffff, (bw >> 16) & 0xffff, null, 0, 500);
         byte[] one = new byte[1];
         conn.controlTransfer(RT_IN, VR_LNA, 0, lna, one, 1, 500);
         conn.controlTransfer(RT_IN, VR_VGA, 0, vga, one, 1, 500);
         amp = lna >= 32;
         conn.controlTransfer(RT_OUT, VR_AMP, amp ? 1 : 0, 0, null, 0, 500);
+        conn.controlTransfer(RT_OUT, VR_ANTENNA, 1, 0, null, 0, 400);
+        demod.setSampleRate(sampleRate);
+        demod.reset();
+    }
+
+    private static int basebandBw(int sr) {
+        int[] legal = {
+                1_750_000, 2_500_000, 3_500_000, 5_000_000, 5_500_000, 6_000_000, 7_000_000,
+                8_000_000, 9_000_000, 10_000_000, 12_000_000, 14_000_000, 15_000_000, 20_000_000,
+                24_000_000, 28_000_000
+        };
+        int want = Math.max(1_750_000, sr);
+        int best = legal[0];
+        for (int v : legal) {
+            if (v >= want) return v;
+            best = v;
+        }
+        return best;
     }
 
     private void applyIioConfig() {
@@ -309,6 +384,9 @@ public final class UsbSdrEngine {
             if (cfg.has("lnaGain")) lna = cfg.optInt("lnaGain", lna);
             if (cfg.has("vgaGain")) vga = cfg.optInt("vgaGain", vga);
             if (cfg.has("amp")) amp = cfg.optBoolean("amp", amp);
+            if (cfg.has("demod")) demod.setMode(cfg.optString("demod"));
+            if (cfg.has("volume")) demod.setVolume((float) cfg.optDouble("volume", 0.7));
+            if (cfg.has("squelch")) demod.setSquelch((float) cfg.optDouble("squelch", 0.08));
             if ("hackrf".equals(kind) && conn != null) applyHackrfConfig();
             if (("pluto".equals(kind) || "libresdr".equals(kind)) && iio != null) applyIioConfig();
             return statusJson(open, "configured");
@@ -316,17 +394,39 @@ public final class UsbSdrEngine {
     }
 
     String setRx(boolean on) {
+        if (on && !open) {
+            String r = open(pendingHint);
+            if (!open) return r;
+        }
         if (!open) return fail("no SDR open");
         if (on) startRx();
-        else stopRx();
+        else {
+            if (listen) setListen(false);
+            stopRx();
+        }
         return statusJson(true, on ? "RX" : "idle");
+    }
+
+    String setListen(boolean on) {
+        listen = on;
+        if (on) {
+            if (!open) open("hackrf");
+            if (open && !rx) startRx();
+            demod.reset();
+            audio.start();
+        } else {
+            audio.stop();
+        }
+        return statusJson(true, on ? "LISTEN" : "mute");
     }
 
     private void startRx() {
         stopRx();
         if ("hackrf".equals(kind) && conn != null) {
+            applyHackrfConfig();
             conn.controlTransfer(RT_OUT, VR_SET_MODE, MODE_RX, 0, null, 0, 500);
             rx = true;
+            haveLeftover = false;
             rxThread = new Thread(this::rxLoop, "hackrf-rx");
             rxThread.setPriority(Thread.MAX_PRIORITY);
             rxThread.start();
@@ -335,7 +435,7 @@ public final class UsbSdrEngine {
             rxThread = new Thread(this::iioRxLoop, "pluto-rx");
             rxThread.start();
         } else {
-            error = "RX armed but no sample path (IIO/USB)";
+            error = "RX armed but no sample path";
         }
     }
 
@@ -358,25 +458,48 @@ public final class UsbSdrEngine {
     }
 
     private void rxLoop() {
-        byte[] buf = new byte[16384];
-        int skip = 0;
+        byte[] buf = new byte[32768];
+        byte[] work = new byte[32770];
+        fftSkip = 0;
         while (rx && conn != null && epIn != null) {
             int n = conn.bulkTransfer(epIn, buf, buf.length, 800);
             if (n <= 0) continue;
             bytesIn += n;
             lastIqNs = System.nanoTime();
-            skip++;
-            if (skip % 8 != 0) continue;
-            int use = Math.min(n, Fft.N * 2);
-            int off = n - use;
+
+            int woff = 0;
+            if (haveLeftover) {
+                work[0] = leftover;
+                woff = 1;
+            }
+            System.arraycopy(buf, 0, work, woff, n);
+            int total = n + woff;
+            if ((total & 1) == 1) {
+                leftover = work[total - 1];
+                haveLeftover = true;
+                total--;
+            } else {
+                haveLeftover = false;
+            }
+
+            if (listen) {
+                int produced = demod.process(work, 0, total, pcm);
+                if (produced > 0) audio.write(pcm, produced);
+            }
+
+            fftSkip++;
+            if (fftSkip % 12 != 0) continue;
+            int use = Math.min(total, Fft.N * 2);
+            int off = total - use;
             if (off < 0) off = 0;
-            fft.powerDbm(buf, off, use, fftDb);
-            Fft.collapse(fftDb, bins);
+            fft.powerDbm(work, off, use, fftDb);
+            synchronized (lock) {
+                Fft.collapse(fftDb, bins);
+            }
         }
     }
 
     private void iioRxLoop() {
-        // IIO buffer path is firmware-specific; keep last bins and heartbeat.
         while (rx) {
             try {
                 Thread.sleep(80);
@@ -388,6 +511,11 @@ public final class UsbSdrEngine {
     }
 
     void close() {
+        setListen(false);
+        closeKeepAudio();
+    }
+
+    private void closeKeepAudio() {
         stopRx();
         open = false;
         try {
@@ -416,9 +544,12 @@ public final class UsbSdrEngine {
             o.put("ok", true);
             o.put("rx", rx);
             o.put("open", open);
+            o.put("listen", listen);
             o.put("kind", kind);
             o.put("centerHz", centerHz);
             o.put("sampleRateHz", sampleRate);
+            o.put("rssi", Math.round(demod.rssi() * 1e6) / 1e6);
+            o.put("muted", demod.muted());
             JSONArray a = new JSONArray();
             synchronized (lock) {
                 for (float b : bins) a.put(Math.round(b * 100.0) / 100.0);
@@ -438,6 +569,7 @@ public final class UsbSdrEngine {
             o.put("ok", error.isEmpty());
             o.put("open", open);
             o.put("rx", rx);
+            o.put("listen", listen);
             o.put("kind", kind);
             o.put("version", version);
             o.put("board", board);
@@ -449,6 +581,7 @@ public final class UsbSdrEngine {
             o.put("amp", amp);
             o.put("devices", scan());
             o.put("iio", iio != null);
+            o.put("auto", auto);
         } catch (Exception ignored) {
         }
         return o;
@@ -456,7 +589,9 @@ public final class UsbSdrEngine {
 
     float[] copyBins() {
         float[] out = new float[bins.length];
-        System.arraycopy(bins, 0, out, 0, bins.length);
+        synchronized (lock) {
+            System.arraycopy(bins, 0, out, 0, bins.length);
+        }
         return out;
     }
 
@@ -466,6 +601,10 @@ public final class UsbSdrEngine {
 
     boolean isOpen() {
         return open;
+    }
+
+    boolean isListen() {
+        return listen;
     }
 
     String kind() {

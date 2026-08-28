@@ -21,8 +21,7 @@ function DownloadPage() {
       <p className="text-xs font-medium uppercase tracking-[0.22em] text-muted">DynoGator Labs</p>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">DSLV-ZPDI {RELEASE.version}</h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
-        Signed Pixel 9 Pro XL package for GrapheneOS. Sideload the APK — USB HackRF / HamGeek AD9363, onboard sensors, SPEC-007 HDF5, and C2 master. The AAB is a Play Console artifact and will
-        not install from Files.
+        Signed Pixel 9 Pro XL package for GrapheneOS. Sideload the APK — independent HackRF One / PortaPack over USB-C OTG, real WFM/NFM/AM/SSB demod through the speaker, onboard GNSS, sensors, SPEC-007 HDF5, C2 master, and a Termux / proot Debian <span className="font-mono text-foreground">dslv</span> CLI for agents. Alpha is optional. The AAB is a Play Console artifact and will not install from Files.
       </p>
 
       <div className="mt-6 flex flex-col gap-3">
@@ -67,7 +66,8 @@ function DownloadPage() {
         <li>Settings → Apps → Vanadium (or Files) → Install unknown apps → Allow.</li>
         <li>Open the APK. Install anyway if GrapheneOS warns about an unknown developer.</li>
         <li>App info → Network → Allow. Grant Location when DSLV-ZPDI asks.</li>
-        <li>Join PiRepo (10.42.0.0/24). Link → Alpha live. RF → Scan OTG for HackRF or AD9363.</li>
+        <li>RF → FM 98.1 → Listen. Speaker demod. Alpha is optional — Link → Handset if the Pi is dark.</li>
+        <li>CLI → Bridge → Install Termux aliases (or Debian). Agents: <span className="font-mono text-foreground">dslv help</span>.</li>
       </ol>
 
       <Link to="/" className="mt-8 inline-block text-sm text-primary">

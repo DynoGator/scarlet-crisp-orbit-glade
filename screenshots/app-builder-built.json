@@ -7,9 +7,9 @@
       "status": 200,
       "title": "DynoGatorLabs DSLV-ZPDI",
       "hasCanvas": true,
-      "bodyTextLen": 812,
-      "bodyTextHash": "b41cd46932234de77d4519631130ddb6903b13ffa604c3621896fa6fdbe44177",
-      "bodyTextPrefix": "DYNOGATOR LABS DSLV-ZPDI 2026-08-28 09:44:19.96Z SIM · SIMULATOR",
+      "bodyTextLen": 829,
+      "bodyTextHash": "e2d39a1381d99bfade6568c00d3164b755d5d2bdffac40b5f10619ddaf422b19",
+      "bodyTextPrefix": "DYNOGATOR LABS DSLV-ZPDI — SIM · SIMULATOR Rev 5.7.0 · Pixel C2 ",
       "horizontalOverflow": false,
       "consoleErrors": [],
       "pageErrors": [],
@@ -21,9 +21,9 @@
       "status": 200,
       "title": "DynoGatorLabs DSLV-ZPDI",
       "hasCanvas": true,
-      "bodyTextLen": 794,
-      "bodyTextHash": "7496eb805b89abc213fd667a02143283b947e24756dc5e0341f7d320c9ebf759",
-      "bodyTextPrefix": "DYNOGATOR LABS DSLV-ZPDI — SIM · SIMULATOR Rev 5.5.0 · Pixel C2 ",
+      "bodyTextLen": 829,
+      "bodyTextHash": "e2d39a1381d99bfade6568c00d3164b755d5d2bdffac40b5f10619ddaf422b19",
+      "bodyTextPrefix": "DYNOGATOR LABS DSLV-ZPDI — SIM · SIMULATOR Rev 5.7.0 · Pixel C2 ",
       "horizontalOverflow": false,
       "consoleErrors": [],
       "pageErrors": [],
@@ -38,7 +38,6 @@
   "verdictFile": "/workspace/screenshots/app-builder-built.json",
   "divergesFromBaseline": true,
   "baselineReasons": [
-    "desktop: body text replaced (similar length, page start changed)",
-    "mobile: body text replaced (similar length, page start changed)"
+    "desktop: body text replaced (similar length, page start changed)"
   ]
 }

@@ -7,18 +7,21 @@ import android.webkit.JavascriptInterface;
 import org.json.JSONObject;
 
 /**
- * WebView bridge: USB SDR, Pixel sensors, SPEC-007 HDF5, C2 master, Alpha LAN.
+ * WebView bridge: USB SDR, Pixel sensors, SPEC-007 HDF5, C2 master, Alpha LAN, CLI.
  * Registered as both NativeHost and AlphaBridge.
  */
 public final class NativeHost {
-    static final String VERSION = "5.5.0";
+    static final String VERSION = "5.7.0";
+    static volatile NativeHost INSTANCE;
 
-    private final Activity activity;
+    final Activity activity;
     private final AlphaBridge http = new AlphaBridge();
     final UsbSdrEngine sdr;
     final SensorHub sensors;
     final Hdf5Pipeline pipeline;
     final NodeHttpServer httpd;
+    final TermuxBridge termux;
+    final CliEngine cli;
 
     NativeHost(Activity activity) {
         this.activity = activity;
@@ -27,11 +30,16 @@ public final class NativeHost {
         this.pipeline = new Hdf5Pipeline(activity);
         this.pipeline.attach(sensors, sdr);
         this.sensors.start();
+        this.termux = new TermuxBridge(activity);
+        this.cli = new CliEngine(this);
         this.httpd = new NodeHttpServer(this);
         this.httpd.start();
+        this.sdr.autoConnect();
+        INSTANCE = this;
     }
 
     void shutdown() {
+        INSTANCE = null;
         try {
             pipeline.stop();
             pipeline.seal();
@@ -39,6 +47,7 @@ public final class NativeHost {
         }
         sensors.stop();
         sdr.shutdown(activity);
+        termux.shutdown();
         httpd.stop();
     }
 
@@ -92,6 +101,27 @@ public final class NativeHost {
     }
 
     @JavascriptInterface
+    public String listen(String json) {
+        try {
+            JSONObject o = new JSONObject(json == null || json.isEmpty() ? "{}" : json);
+            if (o.has("demod") || o.has("volume") || o.has("squelch") || o.has("centerHz")) {
+                sdr.config(o);
+            }
+            boolean on = o.optBoolean("on", true);
+            if (o.has("listen")) on = o.optBoolean("listen");
+            return sdr.setListen(on);
+        } catch (Exception e) {
+            return err(e);
+        }
+    }
+
+    @JavascriptInterface
+    public String usbAuto() {
+        sdr.autoConnect();
+        return sdr.status().toString();
+    }
+
+    @JavascriptInterface
     public String usbSpectrum() {
         return sdr.spectrumJson().toString();
     }
@@ -123,6 +153,28 @@ public final class NativeHost {
         try {
             JSONObject p = new JSONObject(json == null || json.isEmpty() ? "{}" : json);
             return pipeline.ingest(p);
+        } catch (Exception e) {
+            return err(e);
+        }
+    }
+
+    @JavascriptInterface
+    public String cli(String cmd) {
+        try {
+            return this.cli.exec(cmd == null ? "help" : cmd).toString();
+        } catch (Exception e) {
+            return err(e);
+        }
+    }
+
+    @JavascriptInterface
+    public String termux(String action) {
+        try {
+            if (action == null || action.isEmpty() || "status".equals(action)) return termux.status().toString();
+            if ("install".equals(action) || "aliases".equals(action)) return termux.installAliases().toString();
+            if ("debian".equals(action)) return termux.installDebian().toString();
+            if (action.startsWith("run:")) return termux.run(action.substring(4), true).toString();
+            return termux.run(action, true).toString();
         } catch (Exception e) {
             return err(e);
         }
@@ -182,12 +234,18 @@ public final class NativeHost {
                 case "sdr.mode.set":
                     String mode = p.optString("mode");
                     if ("real".equals(mode) || "hardware".equals(mode)) {
-                        sdr.open(p.optString("device", ""));
+                        sdr.open(p.optString("device", "hackrf"));
                         sdr.setRx(true);
                     } else if ("offline".equals(mode)) {
                         sdr.setRx(false);
                     }
                     return "local mode " + mode;
+                case "sdr.demod.set":
+                    sdr.config(new JSONObject().put("demod", p.optString("demod")));
+                    return "demod " + p.optString("demod");
+                case "sdr.listen":
+                    sdr.setListen(p.optBoolean("on", true));
+                    return p.optBoolean("on", true) ? "LISTEN" : "mute";
                 case "pipeline.start":
                     return pipeline.start();
                 case "pipeline.stop":
@@ -198,6 +256,8 @@ public final class NativeHost {
                     return pipeline.stats().toString();
                 case "node.status.read":
                     return nodeStatus();
+                case "cli.exec":
+                    return cli.exec(p.optString("cmd")).toString();
                 case "baseline.reset":
                     return "REJECTED: Pixel C2 cannot override Tier-1 baseline/timing authority";
                 default:
@@ -223,6 +283,8 @@ public final class NativeHost {
             o.put("sensors", sensors.snapshot());
             o.put("pipeline", pipeline.stats());
             o.put("http", httpd.status());
+            o.put("termux", termux.status());
+            o.put("cli", "/cli/exec");
             o.put("clock_source", "internal");
             o.put("timing_authority", "alpha-pi-tier1");
             return o.toString();

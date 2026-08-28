@@ -22,14 +22,14 @@ export function OpsView() {
   const capture = useApp((s) => s.capture);
   const setPipeline = useApp((s) => s.setPipeline);
   const usbRx = useApp((s) => s.usbRx);
+  const toggleAudio = useApp((s) => s.toggleAudio);
   const liveError = useApp((s) => s.liveError);
-  const bins = useApp((s) => s.bins);
-  const history = useApp((s) => s.history);
-  const peakHold = useApp((s) => s.peakHold);
   const setCenterHz = useApp((s) => s.setCenterHz);
   const setView = useApp((s) => s.setView);
   const native = isNativeApk();
   const liveUsb = usb.rx && usb.source === "usb";
+  const listening = sdr.audio || usb.listen;
+  const gnss = tel.pixel.lat != null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -39,7 +39,7 @@ export function OpsView() {
           download={RELEASE.apk}
           className="flex items-center justify-between gap-3 rounded-xl bg-primary px-4 py-3 text-primary-foreground shadow-[var(--shadow-border)]"
         >
-          <span className="text-sm font-medium">Install Pixel APK · USB SDR + HDF5</span>
+          <span className="text-sm font-medium">Install Pixel APK · HackRF Listen</span>
           <span className="font-mono text-xs">{RELEASE.version}</span>
         </a>
       ) : null}
@@ -54,12 +54,14 @@ export function OpsView() {
         action={<Pill tone={tel.pipelineActive ? "ok" : "warn"}>{tel.pipelineActive ? "ARMED" : "HELD"}</Pill>}
       >
         <div className="flex flex-wrap gap-1.5">
-          <Pill tone={tel.gpsLock ? "ok" : "danger"}>GPSDO {tel.gpsLock ? "lock" : "search"}</Pill>
+          <Pill tone={gnss || tel.gpsLock ? "ok" : "danger"}>
+            {mode === "live" ? (tel.gpsLock ? "GPSDO lock" : "GPSDO search") : gnss ? "Pixel GNSS" : "GNSS search"}
+          </Pill>
           <Pill tone={tel.timingHealthy ? "ok" : "warn"}>PPS {formatNs(tel.ppsJitterNs)}</Pill>
           <Pill tone={tel.halMode === "OFFLINE" ? "danger" : "primary"}>{tel.halMode}</Pill>
           <Pill tone={tel.baseline === "LOCKED" ? "ok" : "warn"}>FSM {tel.baseline}</Pill>
-          <Pill tone={liveUsb ? "ok" : mode === "live" ? "primary" : "default"}>
-            {liveUsb ? "USB RX" : mode === "live" ? "LIVE" : "SIM"}
+          <Pill tone={listening ? "ok" : liveUsb ? "ok" : mode === "live" ? "primary" : "default"}>
+            {listening ? "LISTEN" : liveUsb ? "USB RX" : mode === "live" ? "LIVE" : mode === "standalone" ? "HANDSET" : "SIM"}
           </Pill>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -76,7 +78,7 @@ export function OpsView() {
       </Panel>
 
       <Panel
-        title={liveUsb ? "Pixel USB RF" : "Alpha RF"}
+        title={liveUsb ? "HackRF RF" : mode === "standalone" ? "Handset RF" : mode === "live" ? "Alpha RF" : "Sim RF"}
         action={
           <Button size="sm" variant="ghost" onClick={() => setView("sdr")}>
             Open RF
@@ -84,9 +86,6 @@ export function OpsView() {
         }
       >
         <Waterfall
-          history={history}
-          bins={bins}
-          peakHold={peakHold}
           centerHz={sdr.centerHz}
           spanHz={sdr.spanHz}
           floorDbm={sdr.floorDbm}
@@ -111,6 +110,7 @@ export function OpsView() {
         <Panel title="Tier-2 node">
           <Row label="Host" value={native ? "pixel-9-pro-xl" : tel.hostname} />
           <Row label="USB" value={usb.open ? usb.kind : "idle"} tone={usb.open ? "ok" : "default"} />
+          <Row label="GNSS" value={gnss ? `${tel.pixel.lat!.toFixed(4)}, ${tel.pixel.lon!.toFixed(4)}` : "no fix"} tone={gnss ? "ok" : "warn"} />
           <Row label="|B|" value={`${tel.pixel.magAbs.toFixed(1)} µT`} tone="primary" />
           <Row label="Trust" value={tel.pixel.trustScore.toFixed(2)} />
           <Row label="CPU" value={`${tel.cpuPct.toFixed(0)}%`} tone={tel.cpuPct > 80 ? "danger" : "default"} />
@@ -137,8 +137,14 @@ export function OpsView() {
           <Button variant="outline" onClick={capture}>
             Seal capture
           </Button>
+          <Button variant={listening ? "primary" : "outline"} onClick={toggleAudio}>
+            {listening ? "Mute" : "Listen"}
+          </Button>
           <Button variant={usb.rx ? "primary" : "outline"} onClick={() => usbRx(!usb.rx)} disabled={!native}>
             {usb.rx ? "USB RX on" : "USB RX"}
+          </Button>
+          <Button variant="outline" onClick={() => setView("cli")}>
+            CLI
           </Button>
         </div>
       </Panel>

@@ -4,12 +4,14 @@ import { MetroView } from "@/views/metro-view";
 import { OpsView } from "@/views/ops-view";
 import { SdrView } from "@/views/sdr-view";
 import { SwarmView } from "@/views/swarm-view";
+import { CliView } from "@/views/cli-view";
+import { startSimListen } from "@/lib/listen-audio";
 import { useApp } from "@/lib/store";
 import { isNativeApk } from "@/lib/native";
 import { RELEASE } from "@/lib/release-meta";
 import type { ViewId } from "@/lib/types";
 import { utcStamp } from "@/lib/utils";
-import { Cable, Gauge, LayoutGrid, Radio, Waypoints } from "lucide-react";
+import { Cable, Gauge, LayoutGrid, Radio, Terminal, Waypoints } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 const NAV: { id: ViewId; label: string; icon: typeof LayoutGrid }[] = [
@@ -17,6 +19,7 @@ const NAV: { id: ViewId; label: string; icon: typeof LayoutGrid }[] = [
   { id: "sdr", label: "RF", icon: Radio },
   { id: "swarm", label: "Swarm", icon: Waypoints },
   { id: "metro", label: "Metro", icon: Gauge },
+  { id: "cli", label: "CLI", icon: Terminal },
   { id: "link", label: "Link", icon: Cable },
 ];
 
@@ -41,13 +44,19 @@ export function AppShell() {
   const hydrate = useApp((s) => s.hydrate);
   const tick = useApp((s) => s.tick);
   const applyPixelFix = useApp((s) => s.applyPixelFix);
-  const tel = useApp((s) => s.tel);
+  const halMode = useApp((s) => s.tel.halMode);
+  const timingHealthy = useApp((s) => s.tel.timingHealthy);
   const mode = useApp((s) => s.mode);
-  const sdr = useApp((s) => s.sdr);
-  const usb = useApp((s) => s.usb);
+  const sdrAudio = useApp((s) => s.sdr.audio);
+  const sdrDemod = useApp((s) => s.sdr.demod);
+  const sdrCenter = useApp((s) => s.sdr.centerHz);
+  const sdrVolume = useApp((s) => s.sdr.volume);
+  const usbRx = useApp((s) => s.usb.rx);
+  const usbListen = useApp((s) => s.usb.listen);
   const clock = useClock();
   const [armed, setArmed] = useState(false);
-  const sdrUsb = usb.rx ? "USB RX" : mode === "live" ? "LIVE" : "SIM";
+  const linkTag =
+    usbListen || sdrAudio ? "LISTEN" : usbRx ? "USB RX" : mode === "live" ? "LIVE" : mode === "standalone" ? "HANDSET" : "SIM";
 
   useEffect(() => {
     hydrate();
@@ -75,34 +84,19 @@ export function AppShell() {
 
   useEffect(() => {
     if (!armed) return;
-    const id = window.setInterval(tick, 100);
+    const id = window.setInterval(tick, 200);
     return () => window.clearInterval(id);
   }, [tick, armed]);
 
   useEffect(() => {
-    if (!sdr.audio) return;
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const lfo = ctx.createOscillator();
-    const lfoGain = ctx.createGain();
-    osc.type = sdr.demod === "AM" ? "sine" : "triangle";
-    osc.frequency.value = 220 + (sdr.centerHz % 400);
-    lfo.frequency.value = 4.5;
-    lfoGain.gain.value = 18;
-    gain.gain.value = 0.03;
-    lfo.connect(lfoGain);
-    lfoGain.connect(osc.frequency);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    lfo.start();
-    return () => {
-      osc.stop();
-      lfo.stop();
-      void ctx.close();
-    };
-  }, [sdr.audio, sdr.demod, sdr.centerHz]);
+    if (!sdrAudio) return;
+    if (isNativeApk()) return;
+    return startSimListen({
+      demod: sdrDemod,
+      centerHz: sdrCenter,
+      volume: sdrVolume,
+    });
+  }, [sdrAudio, sdrDemod, sdrCenter, sdrVolume]);
 
   return (
     <div className="app-grid flex min-h-dvh flex-col bg-background text-foreground">
@@ -120,14 +114,14 @@ export function AppShell() {
           <div className="text-right">
             <div className="font-mono text-xs tabular-nums text-muted">{clock}</div>
             <div className="font-mono text-xs uppercase tracking-wide text-primary">
-              {sdrUsb} · {tel.halMode}
+              {linkTag} · {halMode}
             </div>
           </div>
         </div>
         <div className="mt-2 flex items-center justify-between font-mono text-xs text-muted">
           <span>Rev {RELEASE.version} · Pixel C2</span>
-          <span className={tel.timingHealthy ? "text-ok" : "text-warn"}>
-            {tel.timingHealthy ? "TIMING LOCK" : "TIMING DEGRADED"}
+          <span className={timingHealthy ? "text-ok" : "text-warn"}>
+            {timingHealthy ? "TIMING LOCK" : "TIMING DEGRADED"}
           </span>
         </div>
       </header>
@@ -137,11 +131,12 @@ export function AppShell() {
         {view === "sdr" ? <SdrView /> : null}
         {view === "swarm" ? <SwarmView /> : null}
         {view === "metro" ? <MetroView /> : null}
+        {view === "cli" ? <CliView /> : null}
         {view === "link" ? <LinkView /> : null}
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-sm">
-        <ul className="mx-auto grid max-w-3xl grid-cols-5">
+        <ul className="mx-auto grid max-w-3xl grid-cols-6">
           {NAV.map((item) => {
             const active = view === item.id;
             const Icon = item.icon;

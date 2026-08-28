@@ -24,6 +24,7 @@ export function LinkView() {
   const setNodeUrl = useApp((s) => s.setNodeUrl);
   const setToken = useApp((s) => s.setToken);
   const unlockOperator = useApp((s) => s.unlockOperator);
+  const setView = useApp((s) => s.setView);
   const [url, setUrl] = useState(nodeUrl);
   const [token, setTok] = useState(c2Token);
   const [pin, setPin] = useState("");
@@ -40,20 +41,23 @@ export function LinkView() {
       <Panel
         title="Uplink"
         action={
-          <Pill tone={mode === "live" ? (liveOk ? "ok" : "warn") : "default"}>
-            {mode === "live" ? (liveOk ? "LIVE" : "LIVE · retry") : "SIMULATED"}
+          <Pill tone={mode === "live" ? (liveOk ? "ok" : "warn") : mode === "standalone" ? "ok" : "default"}>
+            {mode === "live" ? (liveOk ? "LIVE" : "LIVE · retry") : mode === "standalone" ? "HANDSET" : "SIMULATED"}
           </Pill>
         }
       >
         <p className="mb-3 text-sm leading-relaxed text-muted">
-          This handset is the Tier-2 C2 master and a standalone metrology node. Simulated mode runs the Front Range stack offline. Live mode polls Alpha. USB OTG HackRF / HamGeek AD9363 is native in the Pixel APK.
+          This Pixel is a full SDR control stack. Handset mode runs HackRF One / PortaPack over USB-C OTG with onboard GNSS — Alpha is optional. Simulator is the Front Range offline twin. Live mode polls the Pi 5.
         </p>
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant={mode === "simulated" ? "primary" : "outline"} onClick={() => setMode("simulated")}>
+        <div className="grid grid-cols-3 gap-2">
+          <Button className="px-2 text-xs" variant={mode === "standalone" ? "primary" : "outline"} onClick={() => setMode("standalone")}>
+            Handset
+          </Button>
+          <Button className="px-2 text-xs" variant={mode === "simulated" ? "primary" : "outline"} onClick={() => setMode("simulated")}>
             Simulator
           </Button>
-          <Button variant={mode === "live" ? "primary" : "outline"} onClick={() => setMode("live")}>
-            Alpha live
+          <Button className="px-2 text-xs" variant={mode === "live" ? "primary" : "outline"} onClick={() => setMode("live")}>
+            Alpha
           </Button>
         </div>
         {liveError ? <p className="mt-2 font-mono text-xs text-danger">{liveError}</p> : null}
@@ -62,6 +66,9 @@ export function LinkView() {
             ? "This signed APK owns a LAN bridge. Join PiRepo, then Save and probe — HTTP to 10.42.0.1 is allowed from the handset."
             : "Hosted HTTPS cannot reach an HTTP LAN address. Sideload the Pixel APK on GrapheneOS for LIVE Alpha. Mixed-content blocks are expected from a public host."}
         </p>
+        <Button className="mt-3 w-full" variant="outline" onClick={() => setView("cli")}>
+          CLI · Termux / Debian aliases
+        </Button>
       </Panel>
 
       <Panel title="Alpha endpoint">
@@ -107,18 +114,19 @@ export function LinkView() {
 
       <Panel title="GrapheneOS · USB OTG">
         <p className="mb-3 text-sm leading-relaxed text-muted">
-          Pixel 9 Pro XL is USB-C host. No JNI — HackRF talks vendor requests, Pluto talks libiio over ECM ethernet.
+          Pixel 9 Pro XL is USB-C host. No JNI — HackRF talks vendor requests. PortaPack is an SPI hat; USB is still 1d50:6089. Plug in and the radio auto-connects.
         </p>
         <ol className="list-decimal space-y-1.5 pl-5 text-xs leading-relaxed text-muted">
           <li>USB-C OTG adapter. Unlock the phone. GrapheneOS → USB controlled by this device.</li>
-          <li>HackRF One: plug in, grant USB permission when prompted, RF → Scan OTG → Open → Start RX.</li>
-          <li>HamGeek AD9363 / PlutoSDR+: firmware usb_ether=ecm (RNDIS will not enumerate a useful IIO path). Then 192.168.2.1:30431.</li>
-          <li>App info → Network → Allow. Location for GPS stamps. No extra native libraries; 16 KB pages are a non-issue.</li>
-          <li>Alpha on PiRepo can poll this node at :8777/telemetry. C2 envelopes land on :8444.</li>
+          <li>Plug HackRF One / PortaPack. Grant USB once. RX arms itself. RF → FM 98.1 → Listen. WFM comes out the speaker.</li>
+          <li>No GPSDO? Pixel GNSS stamps captures. Pi 5 LBE-1421 stays Tier-1 when Alpha is live.</li>
+          <li>HamGeek AD9363 / PlutoSDR+: firmware usb_ether=ecm (RNDIS will not enumerate IIO). Then 192.168.2.1:30431.</li>
+          <li>App info → Network → Allow. Location for GNSS stamps. No extra native libraries; 16 KB pages are a non-issue.</li>
         </ol>
-        <Row label="HackRF" value="1d50:6089" />
+        <Row label="HackRF / PortaPack" value="1d50:6089" />
         <Row label="Pluto / AD9363" value="0456:b673" />
         <Row label="Default rate" value="2.048 Msps" />
+        <Row label="Demod" value="WFM · NFM · AM · USB · LSB · CW" />
       </Panel>
 
       <section className="overflow-hidden rounded-xl bg-card shadow-[var(--shadow-border)]">
@@ -196,7 +204,7 @@ export function LinkView() {
           <div className="flex flex-col gap-2">
             <p className="text-sm leading-relaxed text-muted">
               Signed Pixel build <span className="font-mono text-foreground">{RELEASE.packageId}</span> ·{" "}
-              {RELEASE.version}. USB host, sensors, HDF5 chain, and C2 listener are in-process. Grant location and USB when prompted.
+              {RELEASE.version}. USB host, HackRF demod, Pixel GNSS, HDF5 chain, and C2 listener are in-process. Grant location and USB when prompted. Alpha is optional.
             </p>
             <Row label="Build" value={`${RELEASE.version} / ${RELEASE.versionCode}`} />
             <Row label="Target" value="API 34 · min 29 · arm64 · Pixel 9 Pro XL" />
@@ -233,7 +241,7 @@ export function LinkView() {
               <li>Vanadium → three-dot → Downloads, or Files. Settings → Apps → Vanadium → Install unknown apps → Allow.</li>
               <li>Open {RELEASE.apk}. GrapheneOS may warn about an unknown developer — Install anyway.</li>
               <li>App info → Network → Allow (GrapheneOS INTERNET toggle). Grant Location for GPS stamps.</li>
-              <li>Join PiRepo (10.42.0.0/24). Open DSLV-ZPDI → Link → Alpha live. RF → Scan OTG for HackRF / AD9363.</li>
+              <li>Join PiRepo (10.42.0.0/24) only if you want Alpha. Otherwise Link → Handset. RF → FM 98.1 → Listen.</li>
             </ol>
           </div>
         )}

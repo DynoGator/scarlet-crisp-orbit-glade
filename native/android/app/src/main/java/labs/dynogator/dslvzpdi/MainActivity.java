@@ -3,6 +3,7 @@ package labs.dynogator.dslvzpdi;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.hardware.usb.UsbManager;
@@ -67,7 +68,7 @@ public class MainActivity extends Activity {
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         s.setGeolocationEnabled(true);
-        s.setUserAgentString(s.getUserAgentString() + " DynoGatorLabs-DSLV-ZPDI/5.5.0");
+        s.setUserAgentString(s.getUserAgentString() + " DynoGatorLabs-DSLV-ZPDI/5.7.0");
         if (Build.VERSION.SDK_INT >= 33) {
             s.setAlgorithmicDarkeningAllowed(false);
         }
@@ -95,13 +96,50 @@ public class MainActivity extends Activity {
         setContentView(webView);
         requestLocation();
         maybeOpenAttachedUsb();
+        maybeExecCliIntent(getIntent());
         webView.loadUrl(START_URL);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        maybeOpenAttachedUsb();
+        maybeExecCliIntent(intent);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (nativeHost != null) nativeHost.sdr.autoConnect();
     }
 
     private void maybeOpenAttachedUsb() {
         if (nativeHost == null) return;
         if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(getIntent() != null ? getIntent().getAction() : "")) {
-            nativeHost.sdr.open("");
+            nativeHost.sdr.open("hackrf");
+        }
+    }
+
+    private void maybeExecCliIntent(Intent intent) {
+        if (nativeHost == null || intent == null) return;
+        String cmd = intent.getStringExtra("cmd");
+        if (cmd == null) cmd = intent.getStringExtra("dslv");
+        Uri u = intent.getData();
+        if ((cmd == null || cmd.isEmpty()) && u != null && "dslv".equals(u.getScheme())) {
+            cmd = u.getQueryParameter("cmd");
+            if (cmd == null || cmd.isEmpty()) {
+                String host = u.getHost();
+                String p = u.getPath();
+                cmd = (host == null ? "" : host) + (p == null ? "" : p.replace('/', ' '));
+                cmd = cmd.trim();
+            }
+        }
+        if (cmd != null && !cmd.isEmpty()) {
+            try {
+                nativeHost.cli.exec(cmd);
+            } catch (Exception ignored) {
+            }
         }
     }
 

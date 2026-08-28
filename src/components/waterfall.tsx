@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BINS, HISTORY, type PaletteId } from "@/lib/types";
+import { rfBus } from "@/lib/rf-bus";
 import { formatMhz } from "@/lib/utils";
 
 const MAPS: [number, number, number][][] = [
@@ -45,9 +46,6 @@ function lift(t: number) {
 }
 
 export function Waterfall({
-  history,
-  bins,
-  peakHold,
   centerHz,
   spanHz,
   floorDbm,
@@ -56,9 +54,6 @@ export function Waterfall({
   compact = false,
   onTune,
 }: {
-  history: Float32Array[];
-  bins: Float32Array;
-  peakHold: Float32Array;
   centerHz: number;
   spanHz: number;
   floorDbm: number;
@@ -69,117 +64,113 @@ export function Waterfall({
 }) {
   const wf = useRef<HTMLCanvasElement>(null);
   const sp = useRef<HTMLCanvasElement>(null);
+  const lastFrame = useRef(-1);
   const [cursor, setCursor] = useState<number | null>(null);
 
   useEffect(() => {
-    const canvas = wf.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d", { alpha: false });
-    if (!ctx) return;
-    const w = BINS;
-    const h = HISTORY;
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
-    }
-    const img = ctx.createImageData(w, h);
-    const data = img.data;
-    const range = Math.max(5, ceilDbm - floorDbm);
-    for (let y = 0; y < h; y++) {
-      const row = history[y];
-      for (let x = 0; x < w; x++) {
-        const v = row ? row[x] : floorDbm;
-        const [r, g, b] = sampleMap(lift((v - floorDbm) / range), palette);
-        const i = (y * w + x) * 4;
-        data[i] = r;
-        data[i + 1] = g;
-        data[i + 2] = b;
-        data[i + 3] = 255;
+    let raf = 0;
+    const paint = () => {
+      raf = requestAnimationFrame(paint);
+      const frame = rfBus.frame();
+      if (frame === lastFrame.current) return;
+      lastFrame.current = frame;
+
+      const wfc = wf.current;
+      const spc = sp.current;
+      if (!wfc || !spc) return;
+      const wctx = wfc.getContext("2d", { alpha: false });
+      const sctx = spc.getContext("2d");
+      if (!wctx || !sctx) return;
+
+      if (wfc.width !== BINS || wfc.height !== HISTORY) {
+        wfc.width = BINS;
+        wfc.height = HISTORY;
       }
-    }
-    ctx.putImageData(img, 0, 0);
-  }, [history, floorDbm, ceilDbm, palette]);
 
-  useEffect(() => {
-    const canvas = sp.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const cssW = canvas.clientWidth || 320;
-    const cssH = canvas.clientHeight || 88;
-    canvas.width = Math.floor(cssW * dpr);
-    canvas.height = Math.floor(cssH * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW, cssH);
+      const range = Math.max(5, ceilDbm - floorDbm);
+      const row = wctx.createImageData(BINS, 1);
+      const bins = rfBus.bins;
+      for (let x = 0; x < BINS; x++) {
+        const [r, g, b] = sampleMap(lift((bins[x] - floorDbm) / range), palette);
+        const i = x * 4;
+        row.data[i] = r;
+        row.data[i + 1] = g;
+        row.data[i + 2] = b;
+        row.data[i + 3] = 255;
+      }
+      wctx.drawImage(wfc, 0, 0, BINS, HISTORY - 1, 0, 1, BINS, HISTORY - 1);
+      wctx.putImageData(row, 0, 0);
 
-    const range = Math.max(5, ceilDbm - floorDbm);
-    const ny = (v: number) => cssH - ((v - floorDbm) / range) * cssH;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const cssW = spc.clientWidth || 320;
+      const cssH = spc.clientHeight || 88;
+      const tw = Math.floor(cssW * dpr);
+      const th = Math.floor(cssH * dpr);
+      if (spc.width !== tw || spc.height !== th) {
+        spc.width = tw;
+        spc.height = th;
+      }
+      sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      sctx.clearRect(0, 0, cssW, cssH);
+      const ny = (v: number) => cssH - ((v - floorDbm) / range) * cssH;
 
-    ctx.strokeStyle = "rgba(236, 238, 241, 0.06)";
-    ctx.lineWidth = 1;
-    const ticks = [-90, -70, -50, -30];
-    for (const db of ticks) {
-      if (db <= floorDbm || db >= ceilDbm) continue;
-      const y = ny(db);
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(cssW, y);
-      ctx.stroke();
-    }
+      sctx.strokeStyle = "rgba(236, 238, 241, 0.06)";
+      sctx.lineWidth = 1;
+      for (const db of [-90, -70, -50, -30]) {
+        if (db <= floorDbm || db >= ceilDbm) continue;
+        const y = ny(db);
+        sctx.beginPath();
+        sctx.moveTo(0, y);
+        sctx.lineTo(cssW, y);
+        sctx.stroke();
+      }
+      sctx.beginPath();
+      sctx.moveTo(cssW / 2, 0);
+      sctx.lineTo(cssW / 2, cssH);
+      sctx.strokeStyle = "rgba(142, 180, 173, 0.28)";
+      sctx.stroke();
 
-    ctx.beginPath();
-    ctx.moveTo(cssW / 2, 0);
-    ctx.lineTo(cssW / 2, cssH);
-    ctx.strokeStyle = "rgba(142, 180, 173, 0.28)";
-    ctx.stroke();
+      sctx.beginPath();
+      for (let i = 0; i < BINS; i++) {
+        const x = (i / (BINS - 1)) * cssW;
+        const y = ny(bins[i] ?? floorDbm);
+        if (i === 0) sctx.moveTo(x, y);
+        else sctx.lineTo(x, y);
+      }
+      sctx.lineTo(cssW, cssH);
+      sctx.lineTo(0, cssH);
+      sctx.closePath();
+      sctx.fillStyle = "rgba(142, 180, 173, 0.18)";
+      sctx.fill();
 
-    ctx.beginPath();
-    for (let i = 0; i < BINS; i++) {
-      const x = (i / (BINS - 1)) * cssW;
-      const y = ny(bins[i] ?? floorDbm);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.lineTo(cssW, cssH);
-    ctx.lineTo(0, cssH);
-    ctx.closePath();
-    ctx.fillStyle = "rgba(142, 180, 173, 0.18)";
-    ctx.fill();
+      sctx.beginPath();
+      for (let i = 0; i < BINS; i++) {
+        const x = (i / (BINS - 1)) * cssW;
+        const y = ny(bins[i] ?? floorDbm);
+        if (i === 0) sctx.moveTo(x, y);
+        else sctx.lineTo(x, y);
+      }
+      sctx.strokeStyle = "rgba(142, 180, 173, 0.95)";
+      sctx.lineWidth = 1.5;
+      sctx.stroke();
 
-    ctx.beginPath();
-    for (let i = 0; i < BINS; i++) {
-      const x = (i / (BINS - 1)) * cssW;
-      const y = ny(bins[i] ?? floorDbm);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = "rgba(142, 180, 173, 0.95)";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    ctx.beginPath();
-    for (let i = 0; i < BINS; i++) {
-      const x = (i / (BINS - 1)) * cssW;
-      const y = ny(peakHold[i] ?? floorDbm);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = "rgba(200, 204, 210, 0.45)";
-    ctx.setLineDash([3, 4]);
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    if (cursor != null) {
-      const x = ((cursor - (centerHz - spanHz / 2)) / spanHz) * cssW;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, cssH);
-      ctx.strokeStyle = "rgba(236, 238, 241, 0.55)";
-      ctx.stroke();
-    }
-  }, [bins, peakHold, floorDbm, ceilDbm, cursor, centerHz, spanHz]);
+      const peak = rfBus.peakHold;
+      sctx.beginPath();
+      for (let i = 0; i < BINS; i++) {
+        const x = (i / (BINS - 1)) * cssW;
+        const y = ny(peak[i] ?? floorDbm);
+        if (i === 0) sctx.moveTo(x, y);
+        else sctx.lineTo(x, y);
+      }
+      sctx.strokeStyle = "rgba(200, 204, 210, 0.45)";
+      sctx.setLineDash([3, 4]);
+      sctx.lineWidth = 1;
+      sctx.stroke();
+      sctx.setLineDash([]);
+    };
+    raf = requestAnimationFrame(paint);
+    return () => cancelAnimationFrame(raf);
+  }, [floorDbm, ceilDbm, palette]);
 
   const lo = centerHz - spanHz / 2;
   const hi = centerHz + spanHz / 2;

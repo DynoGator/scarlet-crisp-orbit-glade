@@ -1,8 +1,8 @@
-export type ViewId = "ops" | "sdr" | "swarm" | "metro" | "link";
+export type ViewId = "ops" | "sdr" | "swarm" | "metro" | "link" | "cli";
 
-export type LinkMode = "simulated" | "live";
+export type LinkMode = "simulated" | "standalone" | "live";
 
-export type SdrDevice = "pluto_iio" | "libresdr" | "hackrf1";
+export type SdrDevice = "hackrf1" | "pluto_iio" | "libresdr";
 
 export type WaterfallMode = "SWEEP" | "NARROW" | "SCOPE";
 
@@ -40,6 +40,8 @@ export interface SdrConfig {
   audio: boolean;
   paused: boolean;
   preset: string;
+  volume: number;
+  squelch: number;
 }
 
 export interface NodeHealth {
@@ -85,6 +87,7 @@ export interface UsbState {
   open: boolean;
   kind: UsbKind;
   rx: boolean;
+  listen: boolean;
   version: string;
   board: string;
   error: string;
@@ -92,6 +95,7 @@ export interface UsbState {
   sampleRateHz: number;
   pending: boolean;
   iio: boolean;
+  muted: boolean;
 }
 
 export interface PipelineNative {
@@ -177,7 +181,7 @@ export interface CaptureEvent {
 }
 
 export const BINS = 192;
-export const HISTORY = 72;
+export const HISTORY = 64;
 
 export const GENESIS_SHA256 =
   "89129408c9090ce97207b3f27690f0628fee4c53d3d603799ebb3dd3d4fc0108";
@@ -188,28 +192,48 @@ export const PRESETS: {
   hz: number;
   demod: DemodMode;
   span: number;
+  hint?: string;
 }[] = [
-  { id: "fm_broadcast", label: "FM Broadcast", hz: 98_100_000, demod: "WFM", span: 20_000_000 },
-  { id: "airband", label: "VHF Airband", hz: 120_000_000, demod: "AM", span: 5_000_000 },
-  { id: "marine", label: "Marine VHF", hz: 156_800_000, demod: "NFM", span: 5_000_000 },
-  { id: "weather", label: "NOAA Wx", hz: 162_400_000, demod: "NFM", span: 2_000_000 },
-  { id: "adsb", label: "ADS-B", hz: 1_090_000_000, demod: "RAW", span: 5_000_000 },
-  { id: "am_broadcast", label: "AM Broadcast", hz: 1_000_000, demod: "AM", span: 2_000_000 },
+  { id: "fm_broadcast", label: "FM 98.1", hz: 98_100_000, demod: "WFM", span: 2_048_000, hint: "WFM broadcast" },
+  { id: "fm_887", label: "FM 88.7", hz: 88_700_000, demod: "WFM", span: 2_048_000 },
+  { id: "fm_1073", label: "FM 107.3", hz: 107_300_000, demod: "WFM", span: 2_048_000 },
+  { id: "nws", label: "NOAA Wx", hz: 162_400_000, demod: "NFM", span: 400_000, hint: "NWS" },
+  { id: "airband", label: "VHF Air", hz: 124_000_000, demod: "AM", span: 400_000 },
+  { id: "marine", label: "Marine 16", hz: 156_800_000, demod: "NFM", span: 400_000 },
+  { id: "2m_call", label: "2m calling", hz: 146_520_000, demod: "NFM", span: 400_000 },
+  { id: "70cm", label: "70cm", hz: 446_000_000, demod: "NFM", span: 400_000 },
+  { id: "gmrs", label: "GMRS 20", hz: 462_675_000, demod: "NFM", span: 400_000 },
+  { id: "am_broadcast", label: "AM 1.0", hz: 1_000_000, demod: "AM", span: 400_000 },
+  { id: "cb", label: "CB 19", hz: 27_185_000, demod: "AM", span: 400_000 },
+  { id: "20m_usb", label: "20m USB", hz: 14_200_000, demod: "USB", span: 100_000 },
+  { id: "40m_lsb", label: "40m LSB", hz: 7_200_000, demod: "LSB", span: 100_000 },
+  { id: "40m_cw", label: "40m CW", hz: 7_030_000, demod: "CW", span: 50_000 },
+  { id: "adsb", label: "ADS-B", hz: 1_090_000_000, demod: "RAW", span: 2_048_000 },
 ];
 
 export const SPAN_FOR_MODE: Record<WaterfallMode, number> = {
-  SWEEP: 20_000_000,
-  NARROW: 5_000_000,
-  SCOPE: 2_000_000,
+  SWEEP: 2_048_000,
+  NARROW: 400_000,
+  SCOPE: 100_000,
 };
 
 export const LNA_STEPS = [0, 8, 16, 24, 32, 40];
 export const VGA_STEPS = [0, 8, 16, 24, 32, 40, 48, 56, 62];
 
+export const STEP_HZ: Record<DemodMode, [number, number, number, number]> = {
+  WFM: [-200_000, -100_000, 100_000, 200_000],
+  NFM: [-25_000, -5_000, 5_000, 25_000],
+  AM: [-10_000, -1_000, 1_000, 10_000],
+  USB: [-500, -100, 100, 500],
+  LSB: [-500, -100, 100, 500],
+  CW: [-100, -20, 20, 100],
+  RAW: [-1_000_000, -100_000, 100_000, 1_000_000],
+};
+
 export const DEFAULT_SDR: SdrConfig = {
-  device: "pluto_iio",
+  device: "hackrf1",
   centerHz: 98_100_000,
-  spanHz: 20_000_000,
+  spanHz: 2_048_000,
   sampleRateHz: 2_048_000,
   waterfallMode: "SWEEP",
   demod: "WFM",
@@ -221,6 +245,8 @@ export const DEFAULT_SDR: SdrConfig = {
   audio: false,
   paused: false,
   preset: "fm_broadcast",
+  volume: 0.7,
+  squelch: 0.08,
 };
 
 export const DEFAULT_USB: UsbState = {
@@ -229,6 +255,7 @@ export const DEFAULT_USB: UsbState = {
   open: false,
   kind: "none",
   rx: false,
+  listen: false,
   version: "",
   board: "",
   error: "",
@@ -236,6 +263,7 @@ export const DEFAULT_USB: UsbState = {
   sampleRateHz: 2_048_000,
   pending: false,
   iio: false,
+  muted: false,
 };
 
 export const DEFAULT_PIPE: PipelineNative = {
@@ -257,7 +285,7 @@ export const DEFAULT_PIPE: PipelineNative = {
 };
 
 export const DEVICE_LABEL: Record<SdrDevice, string> = {
+  hackrf1: "HackRF One / PortaPack",
   pluto_iio: "PlutoSDR+ AD9363",
   libresdr: "LibreSDR / HamGeek",
-  hackrf1: "HackRF One",
 };

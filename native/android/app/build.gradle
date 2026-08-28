@@ -12,9 +12,9 @@ android {
         applicationId "labs.dynogator.dslvzpdi"
         minSdk 29
         targetSdk 34
-        versionCode 550
-        versionName "5.5.0"
-        resValue "string", "app_version", "5.5.0"
+        versionCode 570
+        versionName "5.7.0"
+        resValue "string", "app_version", "5.7.0"
     }
 
     signingConfigs {

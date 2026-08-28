@@ -6,7 +6,6 @@ import {
   DEFAULT_PIPE,
   DEFAULT_SDR,
   DEFAULT_USB,
-  HISTORY,
   PRESETS,
   SPAN_FOR_MODE,
   type CaptureEvent,
@@ -22,9 +21,10 @@ import {
   type WaterfallMode,
 } from "./types";
 import { isNativeApk, nativeHost, nativeJson, nativeRequest } from "./native";
+import { rfBus } from "./rf-bus";
 import { clamp } from "./utils";
 
-const SETTINGS_KEY = "dslv-zpdi-mobile-v1";
+const SETTINGS_KEY = "dslv-zpdi-mobile-v2";
 
 interface Settings {
   mode: LinkMode;
@@ -45,7 +45,7 @@ function loadSettings(): Settings {
 
 function defaultSettings(): Settings {
   return {
-    mode: "simulated",
+    mode: isNativeApk() ? "standalone" : "simulated",
     nodeUrl: "http://10.42.0.1:8080",
     c2Token: "",
     operatorUnlocked: false,
@@ -71,9 +71,6 @@ export interface AppState {
   hydrated: boolean;
   sdr: SdrConfig;
   tel: Telemetry;
-  bins: Float32Array;
-  history: Float32Array[];
-  peakHold: Float32Array;
   commands: CommandRecord[];
   captures: CaptureEvent[];
   usb: UsbState;
@@ -92,6 +89,9 @@ export interface AppState {
   setFloorCeil: (floor?: number, ceil?: number) => void;
   cyclePalette: () => void;
   toggleAudio: () => void;
+  setVolume: (v: number) => void;
+  setSquelch: (v: number) => void;
+  stepHz: (hz: number) => void;
   togglePause: () => void;
   setHalMode: (m: HalMode) => void;
   setPipeline: (running: boolean) => void;
@@ -135,6 +135,9 @@ function pushUsbConfig(sdr: SdrConfig) {
         sampleRateHz: sdr.sampleRateHz,
         lnaGain: sdr.lnaGain,
         vgaGain: sdr.vgaGain,
+        demod: sdr.demod,
+        volume: sdr.volume,
+        squelch: sdr.squelch,
       }),
     );
   } catch {
@@ -148,10 +151,32 @@ function hintFor(device: SdrConfig["device"]) {
   return "pluto";
 }
 
+function cropToSpan(src: Float32Array, sampleRate: number, spanHz: number, dest: Float32Array) {
+  const n = dest.length;
+  const sr = Math.max(1, sampleRate);
+  if (spanHz >= sr * 0.95) {
+    dest.set(src.subarray(0, n));
+    return;
+  }
+  const frac = Math.max(0.04, spanHz / sr);
+  const half = (src.length * frac) / 2;
+  const mid = (src.length - 1) / 2;
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 0.5 : i / (n - 1);
+    const srcIdx = mid - half + t * 2 * half;
+    const i0 = Math.max(0, Math.min(src.length - 1, Math.floor(srcIdx)));
+    const i1 = Math.min(src.length - 1, i0 + 1);
+    const f = srcIdx - Math.floor(srcIdx);
+    dest[i] = src[i0] * (1 - f) + src[i1] * f;
+  }
+}
+
 let lastTick = 0;
 let liveTimer = 0;
 let nativeTimer = 0;
+let scanTimer = 0;
 const scratch = new Float32Array(BINS);
+const usbFull = new Float32Array(BINS).fill(-110);
 
 async function liveGetJson(url: string, token: string): Promise<unknown> {
   if (isNativeApk()) {
@@ -258,6 +283,8 @@ function pullNative(get: () => AppState, set: (p: Partial<AppState>) => void) {
   const spec = nativeJson<{
     rx?: boolean;
     open?: boolean;
+    listen?: boolean;
+    muted?: boolean;
     kind?: UsbState["kind"];
     bins?: number[];
     source?: string;
@@ -281,6 +308,8 @@ function pullNative(get: () => AppState, set: (p: Partial<AppState>) => void) {
     open: Boolean(usbStatus.open ?? spec?.open),
     kind: (usbStatus.kind as UsbState["kind"]) ?? spec?.kind ?? get().usb.kind,
     rx: Boolean(spec?.rx ?? usbStatus.rx),
+    listen: Boolean(spec?.listen ?? usbStatus.listen),
+    muted: Boolean(spec?.muted),
     version: String(usbStatus.version ?? get().usb.version ?? ""),
     board: String(usbStatus.board ?? get().usb.board ?? ""),
     error: String(usbStatus.error ?? ""),
@@ -293,7 +322,7 @@ function pullNative(get: () => AppState, set: (p: Partial<AppState>) => void) {
   const next: Partial<AppState> = { usb };
 
   if (spec?.rx && Array.isArray(spec.bins) && spec.bins.length === BINS) {
-    for (let i = 0; i < BINS; i++) scratch[i] = Number(spec.bins[i]) || -120;
+    for (let i = 0; i < BINS; i++) usbFull[i] = Number(spec.bins[i]) || -120;
     next.usb = { ...usb, source: "usb" };
   }
 
@@ -356,9 +385,6 @@ export const useApp = create<AppState>((set, get) => ({
   hydrated: false,
   sdr: { ...DEFAULT_SDR },
   tel: seedTelemetry(),
-  bins: new Float32Array(BINS),
-  history: [],
-  peakHold: new Float32Array(BINS).fill(-120),
   commands: [],
   captures: [],
   usb: { ...DEFAULT_USB },
@@ -369,58 +395,58 @@ export const useApp = create<AppState>((set, get) => ({
   hydrate: () => {
     if (get().hydrated) return;
     const s = loadSettings();
+    const native = isNativeApk();
+    const mode = s.mode;
     set({
       ...s,
+      mode,
       hydrated: true,
+      sdr: { ...DEFAULT_SDR, ...get().sdr, device: "hackrf1" },
       tel: {
         ...get().tel,
-        halMode: s.mode === "live" ? "HARDWARE" : "SIMULATOR",
+        halMode: mode === "simulated" ? "SIMULATOR" : "HARDWARE",
+        hostname: mode === "live" ? get().tel.hostname : "pixel-9-pro-xl",
+        lastEvent: native ? "Handset independent · waiting HackRF OTG" : "Simulator · Front Range",
       },
     });
-    if (isNativeApk()) {
+    if (native) {
+      try {
+        nativeHost()?.usbAuto?.();
+      } catch {
+        /* ignore */
+      }
       get().usbScan();
     }
   },
 
   tick: () => {
     const now = performance.now();
-    const dt = lastTick ? clamp((now - lastTick) / 1000, 0.05, 0.4) : 0.1;
+    const dt = lastTick ? clamp((now - lastTick) / 1000, 0.08, 0.5) : 0.2;
     lastTick = now;
-    const { sdr, tel, peakHold, history, mode } = get();
+    const { sdr, tel, mode } = get();
     if (sdr.paused) return;
 
     nativeTimer += dt;
-    if (isNativeApk() && nativeTimer > 0.25) {
+    scanTimer += dt;
+    if (isNativeApk() && nativeTimer > 0.35) {
       nativeTimer = 0;
       pullNative(get, set);
+      if (scanTimer > 2.5) {
+        scanTimer = 0;
+        try {
+          nativeHost()?.usbAuto?.();
+        } catch {
+          /* ignore */
+        }
+      }
     }
 
     const usbRx = get().usb.rx && get().usb.source === "usb";
-    if (!usbRx) {
-      generateSpectrum(sdr, tel.t + dt, scratch);
-    }
+    if (!usbRx) generateSpectrum(sdr, tel.t + dt, scratch);
+    else cropToSpan(usbFull, get().usb.sampleRateHz || sdr.sampleRateHz, sdr.spanHz, scratch);
 
     const stats = spectrumStats(scratch, sdr);
-    const nextHold = new Float32Array(BINS);
-    for (let i = 0; i < BINS; i++) {
-      nextHold[i] = Math.max(scratch[i], peakHold[i] * 0.98 + scratch[i] * 0.02);
-    }
-    const row = Float32Array.from(scratch);
-    const base = history.length < HISTORY ? [] : history;
-    const seedNeeded = history.length < HISTORY && !usbRx;
-    let histBase = history;
-    if (seedNeeded) {
-      const seedHist: Float32Array[] = [];
-      for (let i = HISTORY - 1; i >= 0; i--) {
-        const r = new Float32Array(BINS);
-        generateSpectrum(sdr, Math.max(0, tel.t - i * 0.1), r);
-        seedHist.push(r);
-      }
-      histBase = seedHist;
-    } else if (base.length) {
-      histBase = base;
-    }
-    const nextHist = [row, ...histBase].slice(0, HISTORY);
+    rfBus.push(scratch);
     const nextTel = tickTelemetry(tel, sdr, stats, dt);
     const pipe = get().pipe;
     if (pipe.running) {
@@ -431,14 +457,17 @@ export const useApp = create<AppState>((set, get) => ({
     }
     if (get().usb.rx) {
       nextTel.halMode = "HARDWARE";
-      nextTel.lastEvent = `USB ${get().usb.kind.toUpperCase()} RX · internal clock · SECONDARY`;
+      nextTel.gpsLock = nextTel.pixel.lat != null;
+      nextTel.timingHealthy = nextTel.gpsLock;
+      nextTel.lastEvent = get().usb.listen
+        ? `LISTEN ${sdr.demod} · ${(sdr.centerHz / 1e6).toFixed(3)} MHz`
+        : `USB ${get().usb.kind.toUpperCase()} RX`;
+    } else if (mode === "standalone") {
+      nextTel.halMode = "HARDWARE";
+      nextTel.gpsLock = nextTel.pixel.lat != null;
+      nextTel.timingHealthy = nextTel.gpsLock;
     }
-    set({
-      bins: Float32Array.from(scratch),
-      peakHold: nextHold,
-      history: nextHist,
-      tel: nextTel,
-    });
+    set({ tel: nextTel });
     liveTimer += dt;
     if (mode === "live" && liveTimer > 2) {
       liveTimer = 0;
@@ -455,18 +484,23 @@ export const useApp = create<AppState>((set, get) => ({
       centerHz: p.hz,
       demod: p.demod,
       spanHz: p.span,
-      waterfallMode: p.span >= 15e6 ? "SWEEP" : p.span >= 4e6 ? "NARROW" : "SCOPE",
+      waterfallMode: p.span >= 1.5e6 ? "SWEEP" : p.span >= 250e3 ? "NARROW" : "SCOPE",
     } as SdrConfig;
     set({
       sdr,
-      history: [],
-      peakHold: new Float32Array(BINS).fill(-120),
       commands: [
         command("sdr.center_frequency.set", { hz: p.hz }, `preset ${id}`),
         ...get().commands,
       ].slice(0, 40),
     });
     pushUsbConfig(sdr);
+    if (get().sdr.audio) {
+      try {
+        nativeHost()?.listen?.(JSON.stringify({ on: true, demod: p.demod, centerHz: p.hz }));
+      } catch {
+        /* ignore */
+      }
+    }
     if (get().mode === "live") void postLive(get().nodeUrl, "/api/sdr/preset", { preset: id }, get().c2Token);
   },
 
@@ -475,8 +509,6 @@ export const useApp = create<AppState>((set, get) => ({
     const sdr = { ...get().sdr, centerHz: v };
     set({
       sdr,
-      history: [],
-      peakHold: new Float32Array(BINS).fill(-120),
       commands: [command("sdr.center_frequency.set", { hz: v }, `${(v / 1e6).toFixed(3)} MHz`), ...get().commands].slice(
         0,
         40,
@@ -493,15 +525,15 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setSpanMode: (m) => {
-    set({ sdr: { ...get().sdr, waterfallMode: m, spanHz: SPAN_FOR_MODE[m] }, history: [], peakHold: new Float32Array(BINS).fill(-120) });
+    set({ sdr: { ...get().sdr, waterfallMode: m, spanHz: SPAN_FOR_MODE[m] } });
   },
 
   zoom: (dir) => {
     const { sdr } = get();
     const next = dir === 1 ? sdr.spanHz / 2 : sdr.spanHz * 2;
-    const spanHz = clamp(next, 100_000, 500_000_000);
-    const waterfallMode: WaterfallMode = spanHz >= 12e6 ? "SWEEP" : spanHz >= 3e6 ? "NARROW" : "SCOPE";
-    set({ sdr: { ...sdr, spanHz, waterfallMode }, history: [], peakHold: new Float32Array(BINS).fill(-120) });
+    const spanHz = clamp(next, 50_000, 2_048_000);
+    const waterfallMode: WaterfallMode = spanHz >= 1.5e6 ? "SWEEP" : spanHz >= 250e3 ? "NARROW" : "SCOPE";
+    set({ sdr: { ...sdr, spanHz, waterfallMode } });
   },
 
   setGain: (which, db) => {
@@ -517,7 +549,16 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setDemod: (demod) => {
-    set({ sdr: { ...get().sdr, demod } });
+    const sdr = { ...get().sdr, demod };
+    set({ sdr });
+    pushUsbConfig(sdr);
+    if (sdr.audio) {
+      try {
+        nativeHost()?.listen?.(JSON.stringify({ on: true, demod }));
+      } catch {
+        /* ignore */
+      }
+    }
     if (get().mode === "live")
       void postLive(get().nodeUrl, "/api/sdr/config", { demod_mode: demod, center_hz: get().sdr.centerHz }, get().c2Token);
   },
@@ -549,7 +590,43 @@ export const useApp = create<AppState>((set, get) => ({
     set({ sdr: { ...get().sdr, palette: p } });
   },
 
-  toggleAudio: () => set({ sdr: { ...get().sdr, audio: !get().sdr.audio } }),
+  toggleAudio: () => {
+    const on = !get().sdr.audio;
+    const sdr = { ...get().sdr, audio: on };
+    set({
+      sdr,
+      usb: { ...get().usb, listen: on },
+      tel: { ...get().tel, lastEvent: on ? `LISTEN ${sdr.demod}` : "Speaker muted" },
+    });
+    const host = nativeHost();
+    if (host?.listen) {
+      try {
+        host.listen(JSON.stringify({ on, demod: sdr.demod, volume: sdr.volume, squelch: sdr.squelch, centerHz: sdr.centerHz }));
+      } catch {
+        /* ignore */
+      }
+    }
+  },
+  setVolume: (v) => {
+    const sdr = { ...get().sdr, volume: clamp(v, 0, 1) };
+    set({ sdr });
+    pushUsbConfig(sdr);
+    if (sdr.audio) {
+      try {
+        nativeHost()?.listen?.(JSON.stringify({ on: true, volume: sdr.volume }));
+      } catch {
+        /* ignore */
+      }
+    }
+  },
+  setSquelch: (v) => {
+    const sdr = { ...get().sdr, squelch: clamp(v, 0, 1) };
+    set({ sdr });
+    pushUsbConfig(sdr);
+  },
+  stepHz: (hz) => {
+    get().setCenterHz(get().sdr.centerHz + hz);
+  },
   togglePause: () => set({ sdr: { ...get().sdr, paused: !get().sdr.paused } }),
 
   setHalMode: (halMode) => {
@@ -604,9 +681,20 @@ export const useApp = create<AppState>((set, get) => ({
     set({
       mode,
       liveError: null,
-      tel: { ...get().tel, halMode: mode === "live" ? "HARDWARE" : "SIMULATOR" },
+      tel: {
+        ...get().tel,
+        halMode: mode === "simulated" ? "SIMULATOR" : "HARDWARE",
+        lastEvent: mode === "standalone" ? "Independent handset · no Alpha required" : mode === "live" ? "Alpha live" : "Simulator",
+      },
     });
     if (mode === "live") void pullLive(get, set);
+    if (mode === "standalone" && isNativeApk()) {
+      try {
+        nativeHost()?.usbAuto?.();
+      } catch {
+        /* ignore */
+      }
+    }
   },
 
   setNodeUrl: (nodeUrl) => {

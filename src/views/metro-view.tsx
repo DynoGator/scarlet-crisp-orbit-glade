@@ -9,6 +9,7 @@ export function MetroView() {
   const tel = useApp((s) => s.tel);
   const pipe = useApp((s) => s.pipe);
   const usb = useApp((s) => s.usb);
+  const mode = useApp((s) => s.mode);
   const commands = useApp((s) => s.commands);
   const captures = useApp((s) => s.captures);
   const resetBaseline = useApp((s) => s.resetBaseline);
@@ -17,18 +18,38 @@ export function MetroView() {
   const sealPipeline = useApp((s) => s.sealPipeline);
   const rotatePipeline = useApp((s) => s.rotatePipeline);
   const native = isNativeApk();
+  const gnss = tel.pixel.lat != null;
+  const alpha = mode === "live";
 
   return (
     <div className="flex flex-col gap-3">
-      <Panel title="Timing authority · LBE-1421" action={<Pill tone={tel.timingHealthy ? "ok" : "danger"}>{tel.timingHealthy ? "LOCKED" : "DEGRADED"}</Pill>}>
-        <Row label="GPS fix" value={tel.gpsLock ? "3D" : "NONE"} tone={tel.gpsLock ? "ok" : "danger"} />
+      <Panel
+        title={alpha ? "Timing authority · LBE-1421" : "Timing · Pixel GNSS"}
+        action={<Pill tone={alpha ? (tel.timingHealthy ? "ok" : "danger") : gnss ? "ok" : "warn"}>{alpha ? (tel.timingHealthy ? "LOCKED" : "DEGRADED") : gnss ? "GNSS" : "SEARCH"}</Pill>}
+      >
+        <Row
+          label={alpha ? "GPSDO" : "Pixel GNSS"}
+          value={alpha ? (tel.gpsLock ? "3D" : "NONE") : gnss ? "3D" : "NONE"}
+          tone={(alpha ? tel.gpsLock : gnss) ? "ok" : "danger"}
+        />
+        {gnss ? (
+          <Row
+            label="Fix"
+            value={`${tel.pixel.lat!.toFixed(5)}, ${tel.pixel.lon!.toFixed(5)}`}
+            tone="primary"
+          />
+        ) : null}
+        <Row label="Acc" value={tel.pixel.accM != null ? `${tel.pixel.accM.toFixed(1)} m` : "—"} />
+        <Row label="Alt" value={tel.pixel.alt != null ? `${tel.pixel.alt.toFixed(0)} m` : "—"} />
         <Row label="PPS jitter" value={formatNs(tel.ppsJitterNs)} tone={tel.ppsJitterNs < 500 ? "ok" : "warn"} />
         <Row label="chrony RMS" value={`${tel.chronyOffsetUs.toFixed(2)} µs`} />
         <Row label="Stratum" value={String(tel.chronyStratum)} />
-        <Row label="GPIO" value="PPS · pin 24 / GPIO8" />
-        <Row label="REF" value="10 MHz → EXT_REF_CLK" />
+        <Row label="GPIO" value={alpha ? "PPS · pin 24 / GPIO8" : "handset · no PPS"} />
+        <Row label="REF" value={alpha ? "10 MHz → EXT_REF_CLK" : "TCXO internal"} />
         <p className="mt-2 text-xs leading-relaxed text-muted">
-          Pi 5 remains Tier-1 timing/SDR/HDF5 authority. This Pixel cannot override GPSDO or promote USB IQ to institutional PRIMARY.
+          {alpha
+            ? "Pi 5 remains Tier-1 timing/SDR/HDF5 authority. This Pixel cannot override GPSDO or promote USB IQ to institutional PRIMARY."
+            : "No GPSDO required. Pixel GNSS stamps this independent node. When Alpha is live, LBE-1421 on the Pi 5 is still the only timing authority that can promote PRIMARY."}
         </p>
       </Panel>
 

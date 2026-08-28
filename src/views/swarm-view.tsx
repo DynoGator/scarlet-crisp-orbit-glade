@@ -63,7 +63,7 @@ export function SwarmView() {
         <Row label="USB" value={usb.open ? `${usb.kind} ${usb.rx ? "RX" : "open"}` : "idle"} />
         <Row label="Ingest" value={pipe.running ? "ARMED" : "held"} tone={pipe.running ? "ok" : "default"} />
         <p className="mt-2 text-xs leading-relaxed text-muted">
-          This handset issues capability envelopes. Local USB SDR executes here. Alpha timing, GPSDO, and institutional PRIMARY stay on the Pi 5.
+          This handset issues capability envelopes and can run without Alpha. Local USB SDR executes here. Alpha timing, GPSDO, and institutional PRIMARY stay on the Pi 5 when that node is live.
         </p>
       </Panel>
 
@@ -120,7 +120,7 @@ export function SwarmView() {
         <Row label="Tier" value="2 · never PRIMARY" tone="warn" />
         <p className="mt-2 text-xs leading-relaxed text-muted">
           {native
-            ? "SensorHub at GAME rate (~50 Hz). No high-rate sampling. Alpha polls /telemetry on this node the same way it polls Termux."
+            ? "SensorHub at GAME rate (~50 Hz). Pixel GNSS stamps this node when the GPSDO is absent. No high-rate sampling. Alpha may poll /telemetry — it is not required."
             : "On GrapheneOS, grant location. Magnetometer uses the Generic Sensor API when the OS allows it; the APK reads ICM45631 / MMC5616 / ICP20100 natively."}
         </p>
         <div className="mt-3 flex gap-2">

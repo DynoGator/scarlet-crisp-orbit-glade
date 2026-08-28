@@ -16,11 +16,15 @@ export interface NativeHostApi {
   usbConfig?: (json: string) => string;
   usbRx?: (onOff: string) => string;
   usbSpectrum?: () => string;
+  listen?: (json: string) => string;
+  usbAuto?: () => string;
   sensors?: () => string;
   pipeline?: (action: string) => string;
   ingest?: (json: string) => string;
   c2?: (envelopeJson: string) => string;
   nodeStatus?: () => string;
+  cli?: (cmd: string) => string;
+  termux?: (action: string) => string;
 }
 
 export type AlphaBridgeApi = NativeHostApi;
