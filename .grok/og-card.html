@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>DSLV-ZPDI OG</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@600;700;800&display=swap");
+    html, body {
+      margin: 0;
+      width: 1200px;
+      height: 630px;
+      overflow: hidden;
+      background: #050705;
+    }
+    .bezel {
+      box-sizing: border-box;
+      width: 1200px;
+      height: 630px;
+      padding: 22px 78px 38px 28px;
+      background:
+        radial-gradient(120% 80% at 50% 40%, #1a2218 0%, #0b0e0a 55%, #060806 100%);
+      border-radius: 28px;
+      position: relative;
+    }
+    .bezel::after {
+      content: "";
+      position: absolute;
+      inset: 10px;
+      border-radius: 22px;
+      box-shadow: inset 0 0 0 2px #2a3328, inset 0 0 0 6px #0a0d09;
+      pointer-events: none;
+    }
+    .glass {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #020804;
+      box-shadow:
+        inset 0 0 80px rgba(20, 255, 90, 0.08),
+        inset 0 0 0 1px rgba(90, 255, 130, 0.18);
+    }
+    .matrix {
+      position: absolute;
+      inset: 0;
+      color: #145c28;
+      font-family: "Share Tech Mono", ui-monospace, monospace;
+      font-size: 11px;
+      line-height: 14px;
+      letter-spacing: 0.08em;
+      opacity: 0.28;
+      white-space: pre;
+      overflow: hidden;
+      user-select: none;
+    }
+    .vignette {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(70% 70% at 50% 45%, transparent 40%, rgba(0, 0, 0, 0.45) 100%);
+      pointer-events: none;
+    }
+    .scan {
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0.18) 0px,
+        rgba(0, 0, 0, 0.18) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      pointer-events: none;
+    }
+    .ui {
+      position: relative;
+      z-index: 2;
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 18px 22px 14px;
+      color: #6dff7a;
+      font-family: "Share Tech Mono", ui-monospace, monospace;
+    }
+    .brand {
+      text-align: center;
+      position: relative;
+    }
+    .logo {
+      font-family: "Orbitron", "Share Tech Mono", sans-serif;
+      font-weight: 800;
+      font-size: 86px;
+      letter-spacing: 0.12em;
+      line-height: 0.92;
+      color: #7cff8a;
+      text-shadow:
+        0 0 6px #3dff6a,
+        0 0 18px #1aff55,
+        0 0 42px rgba(40, 255, 90, 0.45);
+    }
+    .logo-cut {
+      position: absolute;
+      left: 12%;
+      right: 12%;
+      top: 38px;
+      height: 5px;
+      background: #031208;
+      box-shadow: 0 0 0 1px rgba(80, 255, 120, 0.15);
+    }
+    .tag {
+      margin-top: 4px;
+      font-size: 13px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #86f09a;
+      text-shadow: 0 0 8px #2aff60;
+    }
+    .body {
+      display: grid;
+      grid-template-columns: 250px 1fr 268px;
+      gap: 16px;
+      min-height: 0;
+      margin-top: 8px;
+    }
+    .panel {
+      border: 1px solid rgba(90, 255, 130, 0.35);
+      background: rgba(4, 16, 8, 0.55);
+      padding: 10px 12px;
+    }
+    .panel h2 {
+      margin: 0 0 8px;
+      font-size: 12px;
+      letter-spacing: 0.22em;
+      font-weight: 400;
+    }
+    .status-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .gator {
+      width: 54px;
+      height: 32px;
+      flex: none;
+    }
+    .kv {
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .prompt {
+      margin-top: 10px;
+      font-size: 12px;
+      border-top: 1px solid rgba(90, 255, 130, 0.25);
+      padding-top: 8px;
+    }
+    .caret {
+      display: inline-block;
+      width: 8px;
+      height: 12px;
+      background: #6dff7a;
+      margin-left: 4px;
+      box-shadow: 0 0 8px #3dff6a;
+    }
+    .net {
+      position: relative;
+    }
+    svg.netg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .alerts {
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .alerts .row {
+      display: grid;
+      grid-template-columns: 78px 1fr;
+      gap: 6px;
+      opacity: 0.92;
+    }
+    .foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      opacity: 0.85;
+    }
+    .lab {
+      font-family: "Orbitron", sans-serif;
+      font-size: 16px;
+      letter-spacing: 0.16em;
+      text-shadow: 0 0 10px #3dff6a;
+    }
+    .knobs {
+      position: absolute;
+      right: 16px;
+      top: 70px;
+      bottom: 48px;
+      width: 46px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+    .knob {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #3a4334, #121510 70%);
+      box-shadow: inset 0 0 0 1px #4a5544, 0 2px 0 #050605;
+    }
+    .knob i {
+      display: block;
+      width: 2px;
+      height: 10px;
+      background: #8a9480;
+      margin: 5px auto 0;
+    }
+    .slider {
+      width: 8px;
+      flex: 1;
+      background: #0c0f0b;
+      border-radius: 4px;
+      position: relative;
+      box-shadow: inset 0 0 0 1px #2a3228;
+    }
+    .slider b {
+      position: absolute;
+      left: -4px;
+      top: 38%;
+      width: 16px;
+      height: 10px;
+      background: #2c3428;
+      border-radius: 2px;
+    }
+    .dots {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5px;
+      margin-top: 6px;
+    }
+    .dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #1c2218;
+      box-shadow: inset 0 0 0 1px #3a4334;
+    }
+    .ch {
+      position: absolute;
+      right: 22px;
+      bottom: 16px;
+      color: #5a6658;
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      font-family: "Share Tech Mono", monospace;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="bezel">
+    <div class="glass">
+      <div class="matrix" id="mx"></div>
+      <div class="ui">
+        <div class="brand">
+          <div class="logo">DSLV-ZPDI</div>
+          <div class="logo-cut"></div>
+          <div class="tag">Distributed Sensor Location Vectoring – Zero Point Data Integration</div>
+        </div>
+        <div class="body">
+          <div class="panel">
+            <h2>SYSTEM STATUS</h2>
+            <div class="status-row">
+              <svg class="gator" viewBox="0 0 90 48" fill="none">
+                <path d="M6 30 C10 18 22 10 38 12 C52 4 70 8 84 16 C78 20 72 18 68 20 C74 24 78 30 76 36 C70 34 64 36 58 34 C50 40 38 42 28 38 C20 42 12 40 6 36 Z" fill="#4dff6a" opacity="0.9"/>
+                <circle cx="74" cy="18" r="2" fill="#031208"/>
+              </svg>
+              <div class="kv">
+                NODES ONLINE: 42/42<br/>
+                GPS LOCK: ACTIVE<br/>
+                ZERO POINT DATA: STABLE
+              </div>
+            </div>
+            <div class="prompt">awaiting command... ><span class="caret"></span></div>
+          </div>
+          <div class="net">
+            <svg class="netg" viewBox="0 0 520 280">
+              <defs>
+                <filter id="g">
+                  <feGaussianBlur stdDeviation="1.2" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <g stroke="#4dff6a" stroke-width="1.4" fill="none" opacity="0.85" filter="url(#g)">
+                <line x1="260" y1="48" x2="140" y2="108"/>
+                <line x1="260" y1="48" x2="380" y2="108"/>
+                <line x1="140" y1="108" x2="260" y2="148"/>
+                <line x1="380" y1="108" x2="260" y2="148"/>
+                <line x1="140" y1="108" x2="140" y2="208"/>
+                <line x1="380" y1="108" x2="380" y2="208"/>
+                <line x1="140" y1="208" x2="260" y2="148"/>
+                <line x1="380" y1="208" x2="260" y2="148"/>
+                <line x1="140" y1="208" x2="260" y2="248"/>
+                <line x1="380" y1="208" x2="260" y2="248"/>
+              </g>
+              <g fill="#031a0c" stroke="#6dff7a" stroke-width="1.6" filter="url(#g)">
+                <polygon points="260,18 286,33 286,63 260,78 234,63 234,33"/>
+                <polygon points="140,78 166,93 166,123 140,138 114,123 114,93"/>
+                <polygon points="380,78 406,93 406,123 380,138 354,123 354,93"/>
+                <polygon points="260,112 294,132 294,172 260,192 226,172 226,132"/>
+                <polygon points="140,178 166,193 166,223 140,238 114,223 114,193"/>
+                <polygon points="380,178 406,193 406,223 380,238 354,223 354,193"/>
+                <polygon points="260,218 286,233 286,263 260,278 234,263 234,233"/>
+              </g>
+              <g fill="#7cff8a" font-family="Share Tech Mono, monospace" font-size="8" text-anchor="middle">
+                <text x="260" y="44">T2 ACTIVE</text>
+                <text x="140" y="104">T2 ACTIVE</text>
+                <text x="380" y="104">T2 ACTIVE</text>
+                <text x="260" y="148">TIER 1 HUB</text>
+                <text x="260" y="160">INTEGRATION</text>
+                <text x="140" y="204">T2 ACTIVE</text>
+                <text x="380" y="204">T2 ACTIVE</text>
+                <text x="260" y="244">T2 ACTIVE</text>
+              </g>
+              <g fill="#5ad46c" font-family="Share Tech Mono, monospace" font-size="7">
+                <text x="168" y="70">4.2–8.9 KM</text>
+                <text x="300" y="70">11.4–28 KM</text>
+                <text x="168" y="164">HOP 0.4 ms</text>
+              </g>
+            </svg>
+          </div>
+          <div class="panel alerts">
+            <h2>RECENT ALERTS</h2>
+            <div class="row"><span>0x1A3F02</span><span>VECTOR LOCK · CYN-2</span></div>
+            <div class="row"><span>0x19C441</span><span>PPS JITTER 86 ns</span></div>
+            <div class="row"><span>0x18B0AA</span><span>BASELINE LOCKED</span></div>
+            <div class="row"><span>0x174E91</span><span>FM 98.100 MHz PEAK</span></div>
+            <div class="row"><span>0x16A22C</span><span>RADON 9.6 pCi/L</span></div>
+            <div class="row"><span>0x1518D0</span><span>GPSDO 3D FIX</span></div>
+            <div class="row"><span>0x1407B3</span><span>PIPELINE PRIMARY</span></div>
+            <div class="row"><span>0x13F00E</span><span>R_GLOBAL 0.88</span></div>
+          </div>
+        </div>
+        <div class="foot">
+          <span>POWER · CONTRAST · BRIGHT · V-HOLD</span>
+          <span class="lab">DynoGatorLabs</span>
+        </div>
+      </div>
+      <div class="vignette"></div>
+      <div class="scan"></div>
+    </div>
+    <div class="knobs">
+      <div class="knob"><i></i></div>
+      <div class="knob"><i style="transform: rotate(40deg)"></i></div>
+      <div class="slider"><b></b></div>
+      <div class="dots">
+        <span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div class="ch">CHANNEL 04<br/>DESIGN POINT 04/42</div>
+  </div>
+  <script>
+    const hex = "0123456789ABCDEF";
+    const rows = [];
+    for (let r = 0; r < 48; r++) {
+      let s = "";
+      for (let c = 0; c < 160; c++) s += hex[(r * 13 + c * 7) % 16] + " ";
+      rows.push(s);
+    }
+    document.getElementById("mx").textContent = rows.join("\n");
+  </script>
+</body>
+</html>
