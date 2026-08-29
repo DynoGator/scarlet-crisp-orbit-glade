@@ -15,7 +15,7 @@ export function Panel({
   return (
     <section
       className={cn(
-        "rounded-xl bg-card p-4 shadow-[var(--shadow-border)]",
+        "panel-cv rounded-xl bg-card p-4 shadow-[var(--shadow-border)]",
         className,
       )}
     >

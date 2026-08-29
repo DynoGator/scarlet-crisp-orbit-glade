@@ -69,8 +69,16 @@ export function Waterfall({
 
   useEffect(() => {
     let raf = 0;
+    let row: ImageData | null = null;
+    let hidden = document.hidden;
+    const onVis = () => {
+      hidden = document.hidden;
+    };
+    document.addEventListener("visibilitychange", onVis);
+
     const paint = () => {
       raf = requestAnimationFrame(paint);
+      if (hidden) return;
       const frame = rfBus.frame();
       if (frame === lastFrame.current) return;
       lastFrame.current = frame;
@@ -78,8 +86,8 @@ export function Waterfall({
       const wfc = wf.current;
       const spc = sp.current;
       if (!wfc || !spc) return;
-      const wctx = wfc.getContext("2d", { alpha: false });
-      const sctx = spc.getContext("2d");
+      const wctx = wfc.getContext("2d", { alpha: false, desynchronized: true });
+      const sctx = spc.getContext("2d", { alpha: true, desynchronized: true });
       if (!wctx || !sctx) return;
 
       if (wfc.width !== BINS || wfc.height !== HISTORY) {
@@ -88,20 +96,21 @@ export function Waterfall({
       }
 
       const range = Math.max(5, ceilDbm - floorDbm);
-      const row = wctx.createImageData(BINS, 1);
+      if (!row || row.width !== BINS) row = wctx.createImageData(BINS, 1);
       const bins = rfBus.bins;
+      const data = row.data;
       for (let x = 0; x < BINS; x++) {
         const [r, g, b] = sampleMap(lift((bins[x] - floorDbm) / range), palette);
         const i = x * 4;
-        row.data[i] = r;
-        row.data[i + 1] = g;
-        row.data[i + 2] = b;
-        row.data[i + 3] = 255;
+        data[i] = r;
+        data[i + 1] = g;
+        data[i + 2] = b;
+        data[i + 3] = 255;
       }
       wctx.drawImage(wfc, 0, 0, BINS, HISTORY - 1, 0, 1, BINS, HISTORY - 1);
       wctx.putImageData(row, 0, 0);
 
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const dpr = Math.min(1.25, window.devicePixelRatio || 1);
       const cssW = spc.clientWidth || 320;
       const cssH = spc.clientHeight || 88;
       const tw = Math.floor(cssW * dpr);
@@ -137,18 +146,19 @@ export function Waterfall({
         if (i === 0) sctx.moveTo(x, y);
         else sctx.lineTo(x, y);
       }
-      sctx.lineTo(cssW, cssH);
-      sctx.lineTo(0, cssH);
-      sctx.closePath();
-      sctx.fillStyle = "rgba(142, 180, 173, 0.18)";
-      sctx.fill();
-
-      sctx.beginPath();
-      for (let i = 0; i < BINS; i++) {
-        const x = (i / (BINS - 1)) * cssW;
-        const y = ny(bins[i] ?? floorDbm);
-        if (i === 0) sctx.moveTo(x, y);
-        else sctx.lineTo(x, y);
+      if (!compact) {
+        sctx.lineTo(cssW, cssH);
+        sctx.lineTo(0, cssH);
+        sctx.closePath();
+        sctx.fillStyle = "rgba(142, 180, 173, 0.18)";
+        sctx.fill();
+        sctx.beginPath();
+        for (let i = 0; i < BINS; i++) {
+          const x = (i / (BINS - 1)) * cssW;
+          const y = ny(bins[i] ?? floorDbm);
+          if (i === 0) sctx.moveTo(x, y);
+          else sctx.lineTo(x, y);
+        }
       }
       sctx.strokeStyle = "rgba(142, 180, 173, 0.95)";
       sctx.lineWidth = 1.5;
@@ -169,8 +179,11 @@ export function Waterfall({
       sctx.setLineDash([]);
     };
     raf = requestAnimationFrame(paint);
-    return () => cancelAnimationFrame(raf);
-  }, [floorDbm, ceilDbm, palette]);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [floorDbm, ceilDbm, palette, compact]);
 
   const lo = centerHz - spanHz / 2;
   const hi = centerHz + spanHz / 2;
@@ -182,7 +195,7 @@ export function Waterfall({
   };
 
   return (
-    <div className="overflow-hidden rounded-lg bg-background">
+    <div className="rf-scope overflow-hidden rounded-lg bg-background" data-hot>
       <canvas ref={sp} className={compact ? "block h-16 w-full" : "block h-28 w-full"} />
       <canvas
         ref={wf}

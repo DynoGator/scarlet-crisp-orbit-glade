@@ -4,7 +4,7 @@
     <color name="dslv_primary">#8eb4ad</color>
     <color name="ic_launcher_background">#0a0c0f</color>
     <string name="app_name">DSLV-ZPDI</string>
-    <string name="app_version" translatable="false">5.7.0</string>
+    <string name="app_version" translatable="false">5.8.0</string>
     <style name="Theme.Dslv" parent="android:Theme.DeviceDefault.NoActionBar">
         <item name="android:statusBarColor">@color/dslv_bg</item>
         <item name="android:navigationBarColor">@color/dslv_bg</item>

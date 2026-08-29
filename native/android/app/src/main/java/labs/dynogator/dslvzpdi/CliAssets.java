@@ -1,8 +1,40 @@
 package labs.dynogator.dslvzpdi;
 
+import android.content.Context;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
 /** Shell installers and agent docs served at /cli/*. Pure Java, no JNI. */
 final class CliAssets {
     private CliAssets() {}
+
+    static String read(Context ctx, String name, String fallback) {
+        if (ctx == null) return fallback;
+        try (InputStream in = ctx.getAssets().open(name)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) >= 0) out.write(buf, 0, n);
+            String s = new String(out.toByteArray(), StandardCharsets.UTF_8);
+            return s.isEmpty() ? fallback : s;
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    static String dslvSh(Context ctx) {
+        return read(ctx, "cli/dslv.sh", DSLV_SH);
+    }
+
+    static String installSh(Context ctx) {
+        return read(ctx, "cli/termux-install.sh", INSTALL_SH);
+    }
+
+    static String agentsMd(Context ctx) {
+        return AGENTS_MD;
+    }
 
     static final String DSLV_SH = """
 #!/bin/sh
@@ -82,75 +114,8 @@ fi
 
     static final String INSTALL_SH = """
 #!/bin/sh
-# Install dslv into Termux $PREFIX/bin, $HOME/bin, and/or Debian /usr/local/bin.
-set -e
-HOST="${DSLV_HOST:-127.0.0.1}"
-PORT="${DSLV_PORT:-8444}"
-SRC="http://${HOST}:${PORT}/cli/dslv"
-fetch() {
-  if command -v curl >/dev/null 2>&1; then curl -fsS "$SRC"
-  elif command -v wget >/dev/null 2>&1; then wget -qO- "$SRC"
-  else echo "dslv-install: need curl or wget" >&2; exit 1
-  fi
-}
-install_file() {
-  dest="$1"
-  dir=$(dirname "$dest")
-  mkdir -p "$dir"
-  fetch > "$dest"
-  chmod 755 "$dest"
-  echo "installed $dest"
-}
-ALIASES="dslv-status dslv-listen dslv-mute dslv-tune dslv-capture dslv-sensors dslv-spectrum dslv-help"
-link_aliases() {
-  bin="$1"
-  for a in $ALIASES; do
-    ln -sf "$bin/dslv" "$bin/$a" 2>/dev/null || cp "$bin/dslv" "$bin/$a"
-  done
-}
-rc_snippet() {
-  grep -q 'DSLV-ZPDI CLI' "$1" 2>/dev/null && return 0
-  printf '\\n# DSLV-ZPDI CLI\\nexport PATH="%s:$PATH"\\nalias dslv="%s/dslv"\\n' "$2" "$2" >> "$1"
-}
-
-if [ -n "${DEST:-}" ]; then
-  install_file "$DEST/dslv"
-  link_aliases "$DEST"
-  echo "dslv ready in $DEST  (app must be running)"
-  exit 0
-fi
-
-if [ -n "${PREFIX:-}" ] && [ -d "${PREFIX}/bin" ]; then
-  HOME_BIN="${HOME}/bin"
-  install_file "$HOME_BIN/dslv"
-  link_aliases "$HOME_BIN"
-  install_file "$PREFIX/bin/dslv"
-  link_aliases "$PREFIX/bin"
-  [ -f "$HOME/.bashrc" ] || touch "$HOME/.bashrc"
-  rc_snippet "$HOME/.bashrc" "$HOME_BIN"
-  [ -f "$HOME/.zshrc" ] && rc_snippet "$HOME/.zshrc" "$HOME_BIN"
-  if command -v proot-distro >/dev/null 2>&1; then
-    proot-distro login debian --shared-tmp -- bash -c "curl -fsS '$SRC' > /usr/local/bin/dslv && chmod 755 /usr/local/bin/dslv && for a in $ALIASES; do ln -sf /usr/local/bin/dslv /usr/local/bin/\\$a; done" \\
-      && echo "installed Debian /usr/local/bin/dslv" \\
-      || echo "debian proot skipped (install distro or run: curl -fsS $SRC | DEST=/usr/local/bin sh)"
-  fi
-  echo "Termux PATH ready. Open a new session, then: dslv help"
-  exit 0
-fi
-
-if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
-  install_file /usr/local/bin/dslv
-  link_aliases /usr/local/bin
-  echo "Debian /usr/local/bin/dslv ready"
-  exit 0
-fi
-
-HOME_BIN="${HOME}/bin"
-install_file "$HOME_BIN/dslv"
-link_aliases "$HOME_BIN"
-[ -f "$HOME/.bashrc" ] || touch "$HOME/.bashrc"
-rc_snippet "$HOME/.bashrc" "$HOME_BIN"
-echo "installed $HOME_BIN/dslv — add it to PATH if needed"
+echo "DSLV-ZPDI installer asset missing. Open CLI → Bridge → Copy installer."
+exit 1
 """;
 
     static final String AGENTS_MD = """
@@ -166,7 +131,7 @@ You are on a Pixel running DynoGator Labs DSLV-ZPDI. The `dslv` command is the s
 - Transmit is RX-only in this build.
 
 ## Install
-Termux (Android):
+Termux — paste `dslv-termux-install.sh` and press Enter, or:
 ```
 curl -fsS http://127.0.0.1:8444/cli/install.sh | sh
 ```

@@ -1,3 +1,4 @@
+import { HotSlider } from "@/components/hot-slider";
 import { Panel, Pill, Row } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { Waterfall } from "@/components/waterfall";
@@ -199,34 +200,24 @@ export function SdrView() {
           ))}
         </div>
 
-        <label className="mt-4 block">
-          <div className="mb-1 flex justify-between font-mono text-xs text-muted">
-            <span>Volume</span>
-            <span className="tabular-nums text-foreground">{Math.round(sdr.volume * 100)}%</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(sdr.volume * 100)}
-            onChange={(e) => setVolume(Number(e.target.value) / 100)}
-            className="w-full"
-          />
-        </label>
-        <label className="mt-2 block">
-          <div className="mb-1 flex justify-between font-mono text-xs text-muted">
-            <span>Squelch</span>
-            <span className="tabular-nums text-foreground">{Math.round(sdr.squelch * 100)}</span>
-          </div>
-          <input
-            type="range"
+        <HotSlider
+          label="Volume"
+          min={0}
+          max={100}
+          value={Math.round(sdr.volume * 100)}
+          display={`${Math.round(sdr.volume * 100)}%`}
+          onChange={(n) => setVolume(n / 100)}
+        />
+        <div className="mt-2">
+          <HotSlider
+            label="Squelch"
             min={0}
             max={100}
             value={Math.round(sdr.squelch * 100)}
-            onChange={(e) => setSquelch(Number(e.target.value) / 100)}
-            className="w-full"
+            display={String(Math.round(sdr.squelch * 100))}
+            onChange={(n) => setSquelch(n / 100)}
           />
-        </label>
+        </div>
       </Panel>
 
       <Panel
@@ -288,44 +279,36 @@ export function SdrView() {
             </Button>
           ))}
         </div>
-        <label className="mb-3 block">
-          <div className="mb-1 flex justify-between font-mono text-xs text-muted">
-            <span>LNA</span>
-            <span className="tabular-nums text-foreground">{sdr.lnaGain} dB</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={LNA_STEPS.length - 1}
-            value={Math.max(0, LNA_STEPS.indexOf(sdr.lnaGain))}
-            onChange={(e) => setGain("lna", LNA_STEPS[Number(e.target.value)] ?? 24)}
-            className="w-full"
-          />
-        </label>
-        <label className="mb-3 block">
-          <div className="mb-1 flex justify-between font-mono text-xs text-muted">
-            <span>VGA</span>
-            <span className="tabular-nums text-foreground">{sdr.vgaGain} dB</span>
-          </div>
-          <input
-            type="range"
+        <HotSlider
+          label="LNA"
+          min={0}
+          max={LNA_STEPS.length - 1}
+          value={Math.max(0, LNA_STEPS.indexOf(sdr.lnaGain))}
+          display={`${sdr.lnaGain} dB`}
+          onChange={(n) => setGain("lna", LNA_STEPS[n] ?? 24)}
+        />
+        <div className="mb-3 mt-2">
+          <HotSlider
+            label="VGA"
             min={0}
             max={VGA_STEPS.length - 1}
             value={Math.max(0, VGA_STEPS.indexOf(sdr.vgaGain))}
-            onChange={(e) => setGain("vga", VGA_STEPS[Number(e.target.value)] ?? 32)}
-            className="w-full"
+            display={`${sdr.vgaGain} dB`}
+            onChange={(n) => setGain("vga", VGA_STEPS[n] ?? 32)}
           />
-        </label>
+        </div>
         <Row label="Device" value="" />
-        <select
-          value={sdr.device}
-          onChange={(e) => setDevice(e.target.value as typeof sdr.device)}
-          className="mt-1 h-11 w-full rounded-md bg-elevated px-3 font-mono text-sm text-foreground shadow-[var(--shadow-border)] outline-none"
-        >
-          <option value="hackrf1">HackRF One / PortaPack</option>
-          <option value="pluto_iio">PlutoSDR+ / HamGeek AD9363</option>
-          <option value="libresdr">LibreSDR</option>
-        </select>
+        <div className="relative mt-1 rounded-md" data-hot>
+          <select
+            value={sdr.device}
+            onChange={(e) => setDevice(e.target.value as typeof sdr.device)}
+            className="h-11 w-full rounded-md bg-elevated px-3 font-mono text-sm text-foreground shadow-[var(--shadow-border)] outline-none"
+          >
+            <option value="hackrf1">HackRF One / PortaPack</option>
+            <option value="pluto_iio">PlutoSDR+ / HamGeek AD9363</option>
+            <option value="libresdr">LibreSDR</option>
+          </select>
+        </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <Button size="sm" variant="outline" onClick={() => setFloorCeil(sdr.floorDbm - 5, undefined)}>
             Floor −5

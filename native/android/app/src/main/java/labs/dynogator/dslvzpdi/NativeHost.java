@@ -11,7 +11,7 @@ import org.json.JSONObject;
  * Registered as both NativeHost and AlphaBridge.
  */
 public final class NativeHost {
-    static final String VERSION = "5.7.0";
+    static final String VERSION = "5.8.0";
     static volatile NativeHost INSTANCE;
 
     final Activity activity;

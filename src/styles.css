@@ -24,8 +24,10 @@
   --color-ok: #7fae96;
   --color-warn: #b89a6a;
   --color-danger: #c07a74;
+  --color-hot: #d4524a;
+  --color-hot-foreground: #0a0c0f;
   --color-border: #2a313a;
-  --color-ring: #8eb4ad;
+  --color-ring: #d4524a;
   --color-grid: #1c222a;
 
   --radius-xs: 0.25rem;
@@ -81,6 +83,52 @@
   }
 }
 
+/* GPU compositor pulse (Immortalis on Tensor G4). Opacity only — no layout. */
+:is(
+  button,
+  [role="button"],
+  [role="switch"],
+  [role="slider"],
+  input,
+  select,
+  textarea,
+  [data-hot]
+):not(:disabled):not([data-static]):not([type="hidden"]) {
+  position: relative;
+  isolation: isolate;
+}
+
+html[data-hotzones="on"]
+  :is(
+    button,
+    [role="button"],
+    [role="switch"],
+    [role="slider"],
+    input,
+    select,
+    textarea,
+    [data-hot]
+  ):not(:disabled):not([data-static]):not([type="hidden"])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1.5px var(--color-hot);
+  opacity: 0.28;
+  animation: hot-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes hot-pulse {
+  0%,
+  100% {
+    opacity: 0.16;
+  }
+  50% {
+    opacity: 0.78;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -88,6 +136,21 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  html[data-hotzones="on"]
+    :is(
+      button,
+      [role="button"],
+      [role="switch"],
+      [role="slider"],
+      input,
+      select,
+      textarea,
+      [data-hot]
+    ):not(:disabled):not([data-static]):not([type="hidden"])::after {
+    opacity: 0.55;
+    animation: none !important;
   }
 }
 
@@ -101,6 +164,31 @@
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+.panel-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+
+.rf-scope {
+  contain: paint;
+}
+
+.menu-enter {
+  transform-origin: top left;
+  animation: menu-open 250ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes menu-open {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 input[type="range"] {
@@ -123,8 +211,8 @@ input[type="range"]::-webkit-slider-thumb {
   height: 18px;
   margin-top: -7.5px;
   border-radius: 999px;
-  background: var(--color-accent);
-  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-accent) 18%, transparent);
+  background: var(--color-hot);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-hot) 22%, transparent);
 }
 
 input[type="range"]::-moz-range-track {
@@ -138,5 +226,14 @@ input[type="range"]::-moz-range-thumb {
   height: 18px;
   border: 0;
   border-radius: 999px;
+  background: var(--color-hot);
+}
+
+html[data-hotzones="off"] input[type="range"]::-webkit-slider-thumb {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-accent) 18%, transparent);
+}
+
+html[data-hotzones="off"] input[type="range"]::-moz-range-thumb {
   background: var(--color-accent);
 }

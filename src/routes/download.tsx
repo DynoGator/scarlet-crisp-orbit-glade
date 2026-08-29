@@ -67,7 +67,7 @@ function DownloadPage() {
         <li>Open the APK. Install anyway if GrapheneOS warns about an unknown developer.</li>
         <li>App info → Network → Allow. Grant Location when DSLV-ZPDI asks.</li>
         <li>RF → FM 98.1 → Listen. Speaker demod. Alpha is optional — Link → Handset if the Pi is dark.</li>
-        <li>CLI → Bridge → Install Termux aliases (or Debian). Agents: <span className="font-mono text-foreground">dslv help</span>.</li>
+        <li>CLI → Bridge → Copy installer → paste in Termux → Enter. Agents: <span className="font-mono text-foreground">dslv help</span>.</li>
       </ol>
 
       <Link to="/" className="mt-8 inline-block text-sm text-primary">

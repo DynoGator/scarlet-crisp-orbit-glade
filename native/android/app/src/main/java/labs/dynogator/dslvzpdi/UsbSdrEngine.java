@@ -558,6 +558,9 @@ public final class UsbSdrEngine {
             o.put("source", rx && open ? "usb" : "none");
             o.put("bytesIn", bytesIn);
             o.put("ageMs", lastIqNs == 0 ? -1 : (System.nanoTime() - lastIqNs) / 1_000_000L);
+            o.put("version", version);
+            o.put("board", board);
+            o.put("error", error);
         } catch (Exception ignored) {
         }
         return o;
@@ -579,7 +582,6 @@ public final class UsbSdrEngine {
             o.put("lnaGain", lna);
             o.put("vgaGain", vga);
             o.put("amp", amp);
-            o.put("devices", scan());
             o.put("iio", iio != null);
             o.put("auto", auto);
         } catch (Exception ignored) {

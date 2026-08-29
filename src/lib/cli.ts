@@ -65,6 +65,7 @@ USB IQ is SECONDARY. Pi 5 remains Tier-1.`;
 
 export const INSTALL_TERMUX = "curl -fsS http://127.0.0.1:8444/cli/install.sh | sh";
 export const INSTALL_DEBIAN = "curl -fsS http://127.0.0.1:8444/cli/install.sh | DEST=/usr/local/bin sh";
+export const INSTALL_FILE = `${import.meta.env.BASE_URL}dslv-termux-install.sh`;
 
 const ALIASES: Record<string, string> = {
   "dslv-status": "status",

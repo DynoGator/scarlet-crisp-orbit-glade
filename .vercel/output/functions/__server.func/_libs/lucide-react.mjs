@@ -207,6 +207,26 @@ var LayoutGrid = createLucideIcon("layout-grid", [
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var Menu = createLucideIcon("menu", [
+	["path", {
+		d: "M4 12h16",
+		key: "1lakjw"
+	}],
+	["path", {
+		d: "M4 18h16",
+		key: "19g7jn"
+	}],
+	["path", {
+		d: "M4 6h16",
+		key: "1o0s65"
+	}]
+]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var Radio = createLucideIcon("radio", [
 	["path", {
 		d: "M4.9 19.1C1 15.2 1 8.8 4.9 4.9",
@@ -311,5 +331,18 @@ var Waypoints = createLucideIcon("waypoints", [
 		key: "13o1pw"
 	}]
 ]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var X = createLucideIcon("x", [["path", {
+	d: "M18 6 6 18",
+	key: "1bl5f8"
+}], ["path", {
+	d: "m6 6 12 12",
+	key: "d8bk6v"
+}]]);
 //#endregion
-export { LayoutGrid as a, Cable as c, Radio as i, TriangleAlert as n, GripVertical as o, Terminal as r, Gauge as s, Waypoints as t };
+export { Radio as a, GripVertical as c, Terminal as i, Gauge as l, Waypoints as n, Menu as o, TriangleAlert as r, LayoutGrid as s, X as t, Cable as u };

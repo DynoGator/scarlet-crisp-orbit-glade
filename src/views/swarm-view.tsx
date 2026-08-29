@@ -120,7 +120,7 @@ export function SwarmView() {
         <Row label="Tier" value="2 · never PRIMARY" tone="warn" />
         <p className="mt-2 text-xs leading-relaxed text-muted">
           {native
-            ? "SensorHub at GAME rate (~50 Hz). Pixel GNSS stamps this node when the GPSDO is absent. No high-rate sampling. Alpha may poll /telemetry — it is not required."
+            ? "SensorHub at UI rate (~16 Hz). Pixel GNSS stamps this node when the GPSDO is absent. Alpha may poll /telemetry — it is not required."
             : "On GrapheneOS, grant location. Magnetometer uses the Generic Sensor API when the OS allows it; the APK reads ICM45631 / MMC5616 / ICP20100 natively."}
         </p>
         <div className="mt-3 flex gap-2">

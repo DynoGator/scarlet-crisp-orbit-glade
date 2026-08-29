@@ -1,6 +1,7 @@
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 
-export function CoherenceDial({
+export const CoherenceDial = memo(function CoherenceDial({
   r,
   phases,
   className,
@@ -53,4 +54,4 @@ export function CoherenceDial({
       </div>
     </div>
   );
-}
+});

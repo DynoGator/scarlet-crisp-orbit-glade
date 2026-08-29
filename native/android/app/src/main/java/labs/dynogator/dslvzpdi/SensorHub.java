@@ -22,7 +22,7 @@ import java.security.MessageDigest;
 import java.util.Locale;
 
 /**
- * Pixel 9 Pro XL onboard sensors at SENSOR_DELAY_GAME (~50 Hz).
+ * Pixel 9 Pro XL onboard sensors at SENSOR_DELAY_UI (~16 Hz). Display path only.
  * No HIGH_SAMPLING_RATE. SPEC-016 hardware_tier=2.
  */
 public final class SensorHub implements SensorEventListener, LocationListener {
@@ -82,7 +82,7 @@ public final class SensorHub implements SensorEventListener, LocationListener {
 
     private void listen(int type) {
         Sensor s = sm.getDefaultSensor(type);
-        if (s != null) sm.registerListener(this, s, SensorManager.SENSOR_DELAY_GAME);
+        if (s != null) sm.registerListener(this, s, SensorManager.SENSOR_DELAY_UI);
     }
 
     private void startGps() {

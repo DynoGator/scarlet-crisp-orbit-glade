@@ -4,6 +4,7 @@ import {
   CLI_HELP,
   HIST_KEY,
   INSTALL_DEBIAN,
+  INSTALL_FILE,
   INSTALL_TERMUX,
   PALETTE,
   loadScripts,
@@ -47,6 +48,8 @@ export function CliView() {
   const [current, setCurrent] = useState(0);
   const [running, setRunning] = useState(false);
   const [drag, setDrag] = useState<number | null>(null);
+  const [installer, setInstaller] = useState("");
+  const [copied, setCopied] = useState<"full" | "one" | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -94,6 +97,24 @@ export function CliView() {
   useEffect(() => {
     logRef.current?.scrollTo(0, logRef.current.scrollHeight);
   }, [lines]);
+
+  useEffect(() => {
+    void fetch(INSTALL_FILE)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error("missing installer"))))
+      .then(setInstaller)
+      .catch(() => setInstaller(""));
+  }, []);
+
+  const copyText = async (kind: "full" | "one") => {
+    const text = kind === "full" && installer ? installer : INSTALL_TERMUX;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+    setCopied(kind);
+    window.setTimeout(() => setCopied(null), 2500);
+  };
 
   const push = (k: "in" | "out" | "err", t: string) => setLines((xs) => [...xs.slice(-200), { k, t }]);
 
@@ -408,23 +429,38 @@ export function CliView() {
       {tab === "bridge" ? (
         <Panel title="Termux · Debian" action={<Pill tone={termuxSt?.termux ? "ok" : "default"}>{termuxSt?.termux ? "TERMUX" : native ? "NO APP" : "PWA"}</Pill>}>
           <p className="mb-3 text-sm leading-relaxed text-muted">
-            After install, Claude Code, Gemini CLI, Grok, Kimi, and any shell agent can run <span className="font-mono text-foreground">dslv</span> inside
-            Termux or proot Debian. Loopback only — the APK is the radio.
+            Drop this installer in Termux and press Enter. It writes <span className="font-mono text-foreground">dslv</span> + aliases even if the
+            app is closed, then wakes DSLV-ZPDI and Debian proot if you have it.
           </p>
+          <ol className="mb-3 list-decimal space-y-1 pl-5 text-sm leading-relaxed text-muted">
+            <li>Copy installer (or download the .sh).</li>
+            <li>Open Termux → paste → Enter.</li>
+            <li>Termux → Settings → Allow external apps.</li>
+          </ol>
           <Row label="Termux" value={termuxSt?.termux ? "present" : native ? "not installed" : "APK"} />
           <Row label="Debian" value="proot-distro login debian" />
           <Row label="Content" value="content://labs.dynogator.dslvzpdi.cli" />
-          <div className="mt-3 rounded-lg bg-elevated px-3 py-2 font-mono text-xs leading-relaxed text-muted">
-            <div>Termux</div>
-            <div className="break-all text-foreground">{INSTALL_TERMUX}</div>
-            <div className="mt-2">Debian</div>
-            <div className="break-all text-foreground">{INSTALL_DEBIAN}</div>
-            <div className="mt-2">Agents</div>
-            <div className="break-all text-foreground">dslv tools &nbsp;·&nbsp; dslv status --json</div>
-          </div>
+          <textarea
+            readOnly
+            value={installer || "Loading installer…"}
+            onFocus={(e) => e.currentTarget.select()}
+            spellCheck={false}
+            className="mt-3 h-40 w-full resize-none rounded-lg bg-background px-3 py-2 font-mono text-xs leading-relaxed text-foreground shadow-[var(--shadow-border)] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Termux installer script"
+          />
           <div className="mt-3 grid grid-cols-1 gap-2">
+            <Button variant="primary" disabled={!installer} onClick={() => void copyText("full")}>
+              {copied === "full" ? "Copied — paste in Termux" : "Copy installer"}
+            </Button>
+            <a
+              href={INSTALL_FILE}
+              download="dslv-termux-install.sh"
+              className="inline-flex h-11 items-center justify-center rounded-md bg-transparent px-4 text-sm font-medium text-foreground shadow-[var(--shadow-border)]"
+            >
+              Download dslv-termux-install.sh
+            </a>
             <Button
-              variant="primary"
+              variant="outline"
               disabled={!native}
               onClick={() => {
                 const r = nativeJson<Record<string, unknown>>(() => nativeHost()?.termux?.("install"));
@@ -432,7 +468,7 @@ export function CliView() {
                 setTab("shell");
               }}
             >
-              Install Termux aliases
+              Run installer via Termux
             </Button>
             <Button
               variant="outline"
@@ -445,18 +481,18 @@ export function CliView() {
             >
               Install into Debian proot
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                void navigator.clipboard?.writeText(INSTALL_TERMUX);
-              }}
-            >
-              Copy Termux one-liner
+            <Button variant="ghost" onClick={() => void copyText("one")}>
+              {copied === "one" ? "Copied one-liner" : "Copy curl one-liner"}
             </Button>
           </div>
+          <p className="mt-3 font-mono text-xs leading-relaxed text-muted">
+            {INSTALL_TERMUX}
+            <br />
+            {INSTALL_DEBIAN}
+          </p>
           <p className="mt-3 text-xs leading-relaxed text-muted">
-            Termux → Settings → Allow external apps. GrapheneOS will ask for RUN_COMMAND. Aliases: dslv-status, dslv-listen, dslv-mute,
-            dslv-tune, dslv-capture, dslv-sensors, dslv-spectrum. Agents: <span className="font-mono">dslv tools</span> and{" "}
+            GrapheneOS will ask for RUN_COMMAND. Aliases: dslv-status, dslv-listen, dslv-mute, dslv-tune, dslv-capture, dslv-sensors,
+            dslv-spectrum. Agents: <span className="font-mono">dslv tools</span> and{" "}
             <span className="font-mono">/cli/AGENTS.md</span>.
           </p>
           {termuxSt?.hint ? <p className="mt-2 text-xs text-warn">{termuxSt.hint}</p> : null}

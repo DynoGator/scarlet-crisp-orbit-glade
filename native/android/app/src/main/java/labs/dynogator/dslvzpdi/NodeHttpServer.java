@@ -136,13 +136,15 @@ public final class NodeHttpServer {
                 resp = host.nodeStatus();
             } else if (path.equals("/cli/dslv") || path.equals("/cli/dslv.sh")) {
                 mime = "text/x-shellscript";
-                resp = CliAssets.DSLV_SH;
-            } else if (path.equals("/cli/install.sh") || path.equals("/cli/install-debian.sh")) {
+                resp = CliAssets.dslvSh(host.activity);
+            } else if (path.equals("/cli/install.sh") || path.equals("/cli/install-debian.sh")
+                    || path.equals("/cli/termux-install.sh") || path.equals("/cli/termux.sh")
+                    || path.equals("/dslv-termux-install.sh")) {
                 mime = "text/x-shellscript";
-                resp = CliAssets.INSTALL_SH;
+                resp = CliAssets.installSh(host.activity);
             } else if (path.equals("/cli/AGENTS.md") || path.equals("/cli/README.md")) {
                 mime = "text/markdown";
-                resp = CliAssets.AGENTS_MD;
+                resp = CliAssets.agentsMd(host.activity);
             } else if (path.startsWith("/cli/tools")) {
                 resp = host.cli.tools().toString();
             } else if (path.startsWith("/cli/commands")) {

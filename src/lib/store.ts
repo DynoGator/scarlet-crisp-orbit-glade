@@ -31,6 +31,7 @@ interface Settings {
   nodeUrl: string;
   c2Token: string;
   operatorUnlocked: boolean;
+  hotZones: boolean;
 }
 
 function loadSettings(): Settings {
@@ -49,6 +50,7 @@ function defaultSettings(): Settings {
     nodeUrl: "http://10.42.0.1:8080",
     c2Token: "",
     operatorUnlocked: false,
+    hotZones: true,
   };
 }
 
@@ -69,6 +71,7 @@ export interface AppState {
   liveError: string | null;
   operatorUnlocked: boolean;
   hydrated: boolean;
+  hotZones: boolean;
   sdr: SdrConfig;
   tel: Telemetry;
   commands: CommandRecord[];
@@ -97,6 +100,7 @@ export interface AppState {
   setPipeline: (running: boolean) => void;
   resetBaseline: (hard: boolean) => void;
   setMode: (m: LinkMode) => void;
+  setHotZones: (on: boolean) => void;
   setNodeUrl: (u: string) => void;
   setToken: (t: string) => void;
   unlockOperator: (pin: string) => boolean;
@@ -277,7 +281,7 @@ function num3(v: unknown, fallback: number): [number, number, number] {
   return [fallback, fallback, fallback];
 }
 
-function pullNative(get: () => AppState, set: (p: Partial<AppState>) => void) {
+function pullNative(get: () => AppState, set: (p: Partial<AppState>) => void, scan: boolean) {
   const host = nativeHost();
   if (!host) return;
   const spec = nativeJson<{
@@ -289,12 +293,19 @@ function pullNative(get: () => AppState, set: (p: Partial<AppState>) => void) {
     bins?: number[];
     source?: string;
     sampleRateHz?: number;
+    version?: string;
+    board?: string;
+    error?: string;
   }>(() => host.usbSpectrum?.());
   const sns = nativeJson<Record<string, unknown>>(() => host.sensors?.());
-  const st = nativeJson<Record<string, unknown>>(() => host.usbScan?.());
+  const st = scan ? nativeJson<Record<string, unknown>>(() => host.usbScan?.()) : null;
   const pipe = nativeJson<Record<string, unknown>>(() => host.pipeline?.("stats"));
 
-  const usbStatus = (st?.status as Record<string, unknown> | undefined) ?? st ?? {};
+  const usbStatus =
+    (st?.status as Record<string, unknown> | undefined) ??
+    st ??
+    (spec as Record<string, unknown> | null) ??
+    {};
   const devices = Array.isArray(st?.devices)
     ? (st!.devices as UsbState["devices"])
     : Array.isArray(usbStatus.devices)
@@ -310,9 +321,9 @@ function pullNative(get: () => AppState, set: (p: Partial<AppState>) => void) {
     rx: Boolean(spec?.rx ?? usbStatus.rx),
     listen: Boolean(spec?.listen ?? usbStatus.listen),
     muted: Boolean(spec?.muted),
-    version: String(usbStatus.version ?? get().usb.version ?? ""),
-    board: String(usbStatus.board ?? get().usb.board ?? ""),
-    error: String(usbStatus.error ?? ""),
+    version: String(spec?.version ?? usbStatus.version ?? get().usb.version ?? ""),
+    board: String(spec?.board ?? usbStatus.board ?? get().usb.board ?? ""),
+    error: String(spec?.error ?? usbStatus.error ?? ""),
     source: spec?.rx ? "usb" : get().usb.source,
     sampleRateHz: Number(spec?.sampleRateHz ?? usbStatus.sampleRateHz ?? get().usb.sampleRateHz),
     pending: Boolean(usbStatus.pending),
@@ -383,6 +394,7 @@ export const useApp = create<AppState>((set, get) => ({
   liveError: null,
   operatorUnlocked: false,
   hydrated: false,
+  hotZones: true,
   sdr: { ...DEFAULT_SDR },
   tel: seedTelemetry(),
   commands: [],
@@ -421,25 +433,20 @@ export const useApp = create<AppState>((set, get) => ({
 
   tick: () => {
     const now = performance.now();
-    const dt = lastTick ? clamp((now - lastTick) / 1000, 0.08, 0.5) : 0.2;
+    const dt = lastTick ? clamp((now - lastTick) / 1000, 0.08, 0.5) : 0.4;
     lastTick = now;
     const { sdr, tel, mode } = get();
-    if (sdr.paused) return;
 
     nativeTimer += dt;
     scanTimer += dt;
-    if (isNativeApk() && nativeTimer > 0.35) {
+    if (isNativeApk() && nativeTimer > 0.7) {
       nativeTimer = 0;
-      pullNative(get, set);
-      if (scanTimer > 2.5) {
-        scanTimer = 0;
-        try {
-          nativeHost()?.usbAuto?.();
-        } catch {
-          /* ignore */
-        }
-      }
+      const doScan = scanTimer > 6;
+      if (doScan) scanTimer = 0;
+      pullNative(get, set, doScan);
     }
+
+    if (sdr.paused) return;
 
     const usbRx = get().usb.rx && get().usb.source === "usb";
     if (!usbRx) generateSpectrum(sdr, tel.t + dt, scratch);
@@ -676,7 +683,13 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setMode: (mode) => {
-    const next = { mode, nodeUrl: get().nodeUrl, c2Token: get().c2Token, operatorUnlocked: get().operatorUnlocked };
+    const next = {
+      mode,
+      nodeUrl: get().nodeUrl,
+      c2Token: get().c2Token,
+      operatorUnlocked: get().operatorUnlocked,
+      hotZones: get().hotZones,
+    };
     saveSettings(next);
     set({
       mode,
@@ -697,12 +710,24 @@ export const useApp = create<AppState>((set, get) => ({
     }
   },
 
+  setHotZones: (hotZones) => {
+    saveSettings({
+      mode: get().mode,
+      nodeUrl: get().nodeUrl,
+      c2Token: get().c2Token,
+      operatorUnlocked: get().operatorUnlocked,
+      hotZones,
+    });
+    set({ hotZones });
+  },
+
   setNodeUrl: (nodeUrl) => {
     saveSettings({
       mode: get().mode,
       nodeUrl,
       c2Token: get().c2Token,
       operatorUnlocked: get().operatorUnlocked,
+      hotZones: get().hotZones,
     });
     set({ nodeUrl });
   },
@@ -713,6 +738,7 @@ export const useApp = create<AppState>((set, get) => ({
       nodeUrl: get().nodeUrl,
       c2Token,
       operatorUnlocked: get().operatorUnlocked,
+      hotZones: get().hotZones,
     });
     set({ c2Token });
   },
@@ -725,6 +751,7 @@ export const useApp = create<AppState>((set, get) => ({
         nodeUrl: get().nodeUrl,
         c2Token: get().c2Token,
         operatorUnlocked: true,
+        hotZones: get().hotZones,
       });
       set({ operatorUnlocked: true });
     }
@@ -800,7 +827,7 @@ export const useApp = create<AppState>((set, get) => ({
   usbScan: () => {
     const host = nativeHost();
     if (!host?.usbScan) return;
-    pullNative(get, set);
+    pullNative(get, set, true);
   },
 
   usbOpen: (hint) => {
@@ -809,7 +836,7 @@ export const useApp = create<AppState>((set, get) => ({
     try {
       host.usbOpen(hint ?? hintFor(get().sdr.device));
       pushUsbConfig(get().sdr);
-      pullNative(get, set);
+      pullNative(get, set, true);
       set({
         commands: [command("sdr.mode.set", { device: hint ?? get().sdr.device }, "USB open"), ...get().commands].slice(
           0,

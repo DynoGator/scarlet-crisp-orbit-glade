@@ -37,7 +37,8 @@ export function OpsView() {
         <a
           href={APK_HREF}
           download={RELEASE.apk}
-          className="flex items-center justify-between gap-3 rounded-xl bg-primary px-4 py-3 text-primary-foreground shadow-[var(--shadow-border)]"
+          data-hot
+          className="flex min-h-11 items-center justify-between gap-3 rounded-xl bg-primary px-4 py-3 text-primary-foreground shadow-[var(--shadow-border)]"
         >
           <span className="text-sm font-medium">Install Pixel APK · HackRF Listen</span>
           <span className="font-mono text-xs">{RELEASE.version}</span>

@@ -1,4 +1,5 @@
 import { Mark } from "@/components/mark";
+import { QuickMenu } from "@/components/quick-menu";
 import { LinkView } from "@/views/link-view";
 import { MetroView } from "@/views/metro-view";
 import { OpsView } from "@/views/ops-view";
@@ -10,7 +11,7 @@ import { useApp } from "@/lib/store";
 import { isNativeApk } from "@/lib/native";
 import { RELEASE } from "@/lib/release-meta";
 import type { ViewId } from "@/lib/types";
-import { utcStamp } from "@/lib/utils";
+import { pad2 } from "@/lib/utils";
 import { Cable, Gauge, LayoutGrid, Radio, Terminal, Waypoints } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
@@ -23,14 +24,19 @@ const NAV: { id: ViewId; label: string; icon: typeof LayoutGrid }[] = [
   { id: "link", label: "Link", icon: Cable },
 ];
 
-let clockCache = "—";
+function clockStamp() {
+  const d = new Date();
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}Z`;
+}
+
+let clockCache = clockStamp();
 
 function subscribeClock(cb: () => void) {
-  clockCache = utcStamp();
+  clockCache = clockStamp();
   const id = window.setInterval(() => {
-    clockCache = utcStamp();
+    clockCache = clockStamp();
     cb();
-  }, 250);
+  }, 1000);
   return () => window.clearInterval(id);
 }
 
@@ -53,6 +59,7 @@ export function AppShell() {
   const sdrVolume = useApp((s) => s.sdr.volume);
   const usbRx = useApp((s) => s.usb.rx);
   const usbListen = useApp((s) => s.usb.listen);
+  const hotZones = useApp((s) => s.hotZones);
   const clock = useClock();
   const [armed, setArmed] = useState(false);
   const linkTag =
@@ -62,6 +69,10 @@ export function AppShell() {
     hydrate();
     setArmed(true);
   }, [hydrate]);
+
+  useEffect(() => {
+    document.documentElement.dataset.hotzones = hotZones ? "on" : "off";
+  }, [hotZones]);
 
   useEffect(() => {
     if (!isNativeApk() || !("geolocation" in navigator)) return;
@@ -84,7 +95,7 @@ export function AppShell() {
 
   useEffect(() => {
     if (!armed) return;
-    const id = window.setInterval(tick, 200);
+    const id = window.setInterval(tick, 400);
     return () => window.clearInterval(id);
   }, [tick, armed]);
 
@@ -100,11 +111,12 @@ export function AppShell() {
 
   return (
     <div className="app-grid flex min-h-dvh flex-col bg-background text-foreground">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-sm">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/95 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Mark className="size-8 text-primary" />
-            <div>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <QuickMenu />
+            <Mark className="size-8 shrink-0 text-primary" />
+            <div className="min-w-0">
               <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted">
                 DynoGator Labs
               </div>
@@ -135,7 +147,7 @@ export function AppShell() {
         {view === "link" ? <LinkView /> : null}
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-sm">
+      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <ul className="mx-auto grid max-w-3xl grid-cols-6">
           {NAV.map((item) => {
             const active = view === item.id;
@@ -145,7 +157,7 @@ export function AppShell() {
                 <button
                   type="button"
                   onClick={() => setView(item.id)}
-                  className={`flex h-14 w-full flex-col items-center justify-center gap-0.5 text-xs ${
+                  className={`flex h-14 w-full flex-col items-center justify-center gap-0.5 rounded-md text-xs transition-[color,transform] duration-150 ease-out active:scale-[0.96] ${
                     active ? "text-primary" : "text-muted"
                   }`}
                 >
