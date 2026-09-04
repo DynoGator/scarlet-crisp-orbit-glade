@@ -16,6 +16,9 @@ import java.util.Locale;
 final class CliEngine {
     private final NativeHost host;
     private final File scriptDir;
+    private String scanBank = "all";
+    private int scanIndex = 0;
+    private boolean scanHeld = false;
 
     CliEngine(NativeHost host) {
         this.host = host;
@@ -93,6 +96,8 @@ final class CliEngine {
                     return capture(a.size() > 1 ? join(a, 1) : "cli");
                 case "sdr":
                     return sdr(a.subList(1, a.size()));
+                case "scan":
+                    return scan(a.subList(1, a.size()));
                 case "pipeline":
                     return pipeline(a.size() > 1 ? a.get(1) : "stats");
                 case "c2":
@@ -171,6 +176,67 @@ final class CliEngine {
                 return wrap(host.sdr.status().toString());
             default:
                 return err("sdr ops: scan open close auto rx tune demod gain volume squelch listen preset spectrum");
+        }
+    }
+
+    private JSONObject scan(List<String> a) throws Exception {
+        String op = a.isEmpty() ? "status" : a.get(0).toLowerCase(Locale.US);
+        switch (op) {
+            case "list":
+            case "ls": {
+                String bank = a.size() > 1 ? a.get(1) : scanBank;
+                JSONObject o = obj(true, ScanBank.listText(bank), null);
+                o.put("channels", ScanBank.jsonList(bank));
+                return o;
+            }
+            case "bank": {
+                scanBank = a.size() > 1 ? a.get(1).toLowerCase(Locale.US) : "all";
+                scanIndex = 0;
+                scanHeld = false;
+                List<ScanBank.Ch> list = ScanBank.ofBank(scanBank);
+                if (list.isEmpty()) return err("unknown bank");
+                JSONObject ch = ScanBank.apply(host.sdr, list.get(0));
+                return obj(true, "scan bank " + scanBank + " · " + list.size() + " channels", ch);
+            }
+            case "start":
+            case "on":
+            case "run": {
+                scanHeld = false;
+                List<ScanBank.Ch> list = ScanBank.ofBank(scanBank);
+                if (list.isEmpty()) return err("empty bank");
+                if (scanIndex < 0 || scanIndex >= list.size()) scanIndex = 0;
+                JSONObject ch = ScanBank.apply(host.sdr, list.get(scanIndex));
+                return obj(true, "SCAN " + list.get(scanIndex).label, ch);
+            }
+            case "stop":
+            case "off":
+                scanHeld = false;
+                return obj(true, "SCAN stop", null);
+            case "next":
+            case "skip":
+            case "+": {
+                List<ScanBank.Ch> list = ScanBank.ofBank(scanBank);
+                if (list.isEmpty()) return err("empty bank");
+                scanIndex = (scanIndex + 1) % list.size();
+                scanHeld = false;
+                JSONObject ch = ScanBank.apply(host.sdr, list.get(scanIndex));
+                return obj(true, "SCAN skip " + list.get(scanIndex).label, ch);
+            }
+            case "hold":
+                scanHeld = true;
+                return obj(true, "SCAN HOLD", null);
+            case "status":
+            case "show": {
+                List<ScanBank.Ch> list = ScanBank.ofBank(scanBank);
+                ScanBank.Ch ch = list.isEmpty() ? null : list.get(Math.min(scanIndex, list.size() - 1));
+                String text = "scan " + (scanHeld ? "HOLD" : "IDLE") + " · bank " + scanBank
+                        + (ch == null ? "" : " · " + ch.label + " " + (ch.hz / 1e6) + " MHz " + ch.demod);
+                JSONObject data = new JSONObject().put("bank", scanBank).put("index", scanIndex).put("held", scanHeld);
+                if (ch != null) data.put("hz", ch.hz).put("label", ch.label).put("demod", ch.demod);
+                return obj(true, text, data);
+            }
+            default:
+                return err("scan ops: start stop next hold bank list status");
         }
     }
 
@@ -331,22 +397,31 @@ final class CliEngine {
 
     private void seedScripts() {
         try {
-            if (scriptFile("fm-watch").exists()) return;
-            writeScript("fm-watch", "{\"name\":\"fm-watch\",\"steps\":["
+            seedIfMissing("fm-watch", "{\"name\":\"fm-watch\",\"steps\":["
                     + "{\"cmd\":\"sdr preset fm_broadcast\"},"
                     + "{\"cmd\":\"listen on\"},"
                     + "{\"op\":\"wait\",\"ms\":8000},"
                     + "{\"cmd\":\"capture fm-watch\"},"
                     + "{\"cmd\":\"listen off\"}]}");
-            writeScript("wx-net", "{\"name\":\"wx-net\",\"steps\":["
+            seedIfMissing("wx-net", "{\"name\":\"wx-net\",\"steps\":["
                     + "{\"cmd\":\"sdr preset nws\"},"
                     + "{\"cmd\":\"listen on\"}]}");
-            writeScript("otg-arm", "{\"name\":\"otg-arm\",\"steps\":["
+            seedIfMissing("otg-arm", "{\"name\":\"otg-arm\",\"steps\":["
                     + "{\"cmd\":\"sdr scan\"},"
                     + "{\"cmd\":\"sdr open hackrf\"},"
                     + "{\"cmd\":\"sdr rx on\"}]}");
+            seedIfMissing("fremont-scan", "{\"name\":\"fremont-scan\",\"steps\":["
+                    + "{\"cmd\":\"scan bank all\"},"
+                    + "{\"cmd\":\"scan start\"}]}");
+            seedIfMissing("wx-scan", "{\"name\":\"wx-scan\",\"steps\":["
+                    + "{\"cmd\":\"scan bank noaa\"},"
+                    + "{\"cmd\":\"scan start\"}]}");
         } catch (Exception ignored) {
         }
+    }
+
+    private void seedIfMissing(String name, String json) throws Exception {
+        if (!scriptFile(name).exists()) writeScript(name, json);
     }
 
     private JSONObject doctor() throws Exception {
@@ -378,6 +453,8 @@ final class CliEngine {
                 "sdr listen|Speaker demod on/off",
                 "sdr preset|Named band presets",
                 "sdr spectrum|192-bin dBm",
+                "scan start|Fremont analog listen-only scanner",
+                "scan list|Analog banks: fm am noaa fire law rail air ham gmrs marine cb",
                 "listen|Alias of sdr listen",
                 "capture|Seal HDF5 capture",
                 "pipeline|start stop seal rotate stats",
@@ -414,6 +491,8 @@ final class CliEngine {
                 "{\"type\":\"object\",\"properties\":{\"op\":{\"type\":\"string\",\"enum\":[\"start\",\"stop\",\"seal\",\"rotate\",\"stats\"]}},\"required\":[\"op\"]}"));
         tools.put(tool("dslv_script_run", "Run a saved visual/CLI script",
                 "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}"));
+        tools.put(tool("dslv_scan", "Fremont analog listen-only scanner",
+                "{\"type\":\"object\",\"properties\":{\"op\":{\"type\":\"string\",\"enum\":[\"start\",\"stop\",\"next\",\"hold\",\"list\",\"status\"]},\"bank\":{\"type\":\"string\"}},\"required\":[\"op\"]}"));
         JSONObject o = obj(true, tools.length() + " tools", null);
         o.put("tools", tools);
         o.put("text", tools.toString(2));
@@ -504,6 +583,16 @@ final class CliEngine {
                 return "pipeline " + step.optString("arg", "stats");
             case "scan":
                 return "sdr scan";
+            case "scan-start":
+                return "scan start";
+            case "scan-stop":
+                return "scan stop";
+            case "scan-skip":
+                return "scan next";
+            case "scan-hold":
+                return "scan hold";
+            case "scan-bank":
+                return "scan bank " + step.optString("arg", "all");
             default:
                 return step.optString("cmd", op);
         }
@@ -522,16 +611,22 @@ final class CliEngine {
             case "fm":
             case "fm981":
                 return new long[]{98_100_000L, 0};
+            case "ksty":
+            case "fm_1045":
+                return new long[]{104_500_000L, 0};
             case "fm_887":
                 return new long[]{88_700_000L, 0};
             case "fm_1073":
                 return new long[]{107_300_000L, 0};
             case "nws":
             case "noaa":
-                return new long[]{162_400_000L, 1};
+            case "kjy81":
+                return new long[]{162_500_000L, 1};
+            case "sheriff":
+                return new long[]{154_845_000L, 1};
             case "airband":
             case "air":
-                return new long[]{124_000_000L, 2};
+                return new long[]{122_800_000L, 2};
             case "marine":
                 return new long[]{156_800_000L, 1};
             case "2m_call":
@@ -628,6 +723,8 @@ final class CliEngine {
                 return "sensors";
             case "dslv-spectrum":
                 return "sdr spectrum";
+            case "dslv-scan":
+                return "scan start";
             case "dslv-help":
                 return "help";
             default:
@@ -635,7 +732,7 @@ final class CliEngine {
         }
     }
 
-    static final String PRESET_HELP = "fm_broadcast nws airband marine 2m_call 70cm gmrs am_broadcast cb 20m_usb 40m_lsb 40m_cw adsb";
+    static final String PRESET_HELP = "fm_broadcast ksty nws sheriff airband marine 2m_call 70cm gmrs am_broadcast cb 20m_usb 40m_lsb 40m_cw adsb";
 
     static final String HELP = ""
             + "dslv — DSLV-ZPDI CLI  " + NativeHost.VERSION + "\n"
@@ -648,6 +745,7 @@ final class CliEngine {
             + "sdr listen on|off      speaker demod\n"
             + "sdr preset <id>        " + PRESET_HELP + "\n"
             + "sdr spectrum           192-bin dBm\n"
+            + "scan start|stop|next|hold|bank|list\n"
             + "listen on|off          alias\n"
             + "capture [note]\n"
             + "pipeline start|stop|seal|rotate|stats\n"
@@ -655,6 +753,6 @@ final class CliEngine {
             + "termux status|install|debian|run <cmd>\n"
             + "tools                  JSON function defs for agents\n"
             + "doctor                 bridge self-test\n"
-            + "\nAliases: dslv-status dslv-listen dslv-mute dslv-tune dslv-capture dslv-sensors dslv-spectrum\n"
-            + "Add --json for machine output. USB IQ is SECONDARY.\n";
+            + "\nAliases: dslv-status dslv-listen dslv-mute dslv-tune dslv-capture dslv-sensors dslv-spectrum dslv-scan\n"
+            + "Add --json for machine output. USB IQ is SECONDARY. Analog scanner is RX-only.\n";
 }

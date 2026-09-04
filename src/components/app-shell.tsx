@@ -59,11 +59,28 @@ export function AppShell() {
   const sdrVolume = useApp((s) => s.sdr.volume);
   const usbRx = useApp((s) => s.usb.rx);
   const usbListen = useApp((s) => s.usb.listen);
+  const scanRunning = useApp((s) => s.scan.running);
+  const scanLocked = useApp((s) => s.scan.locked);
+  const scanHeld = useApp((s) => s.scan.held);
   const hotZones = useApp((s) => s.hotZones);
   const clock = useClock();
   const [armed, setArmed] = useState(false);
   const linkTag =
-    usbListen || sdrAudio ? "LISTEN" : usbRx ? "USB RX" : mode === "live" ? "LIVE" : mode === "standalone" ? "HANDSET" : "SIM";
+    scanRunning
+      ? scanHeld
+        ? "HOLD"
+        : scanLocked
+          ? "SCAN LOCK"
+          : "SCAN"
+      : usbListen || sdrAudio
+        ? "LISTEN"
+        : usbRx
+          ? "USB RX"
+          : mode === "live"
+            ? "LIVE"
+            : mode === "standalone"
+              ? "HANDSET"
+              : "SIM";
 
   useEffect(() => {
     hydrate();

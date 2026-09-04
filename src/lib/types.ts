@@ -195,10 +195,13 @@ export const PRESETS: {
   hint?: string;
 }[] = [
   { id: "fm_broadcast", label: "FM 98.1", hz: 98_100_000, demod: "WFM", span: 2_048_000, hint: "WFM broadcast" },
+  { id: "ksty", label: "KSTY 104.5", hz: 104_500_000, demod: "WFM", span: 2_048_000, hint: "Canon City" },
   { id: "fm_887", label: "FM 88.7", hz: 88_700_000, demod: "WFM", span: 2_048_000 },
   { id: "fm_1073", label: "FM 107.3", hz: 107_300_000, demod: "WFM", span: 2_048_000 },
-  { id: "nws", label: "NOAA Wx", hz: 162_400_000, demod: "NFM", span: 400_000, hint: "NWS" },
-  { id: "airband", label: "VHF Air", hz: 124_000_000, demod: "AM", span: 400_000 },
+  { id: "nws", label: "NOAA Wx", hz: 162_500_000, demod: "NFM", span: 400_000, hint: "KJY81 Twin Mtn" },
+  { id: "kjy81", label: "NOAA 162.5", hz: 162_500_000, demod: "NFM", span: 400_000, hint: "KJY81" },
+  { id: "sheriff", label: "Sheriff", hz: 154_845_000, demod: "NFM", span: 400_000, hint: "Fremont SO analog" },
+  { id: "airband", label: "VHF Air", hz: 122_800_000, demod: "AM", span: 400_000, hint: "1V6 CTAF" },
   { id: "marine", label: "Marine 16", hz: 156_800_000, demod: "NFM", span: 400_000 },
   { id: "2m_call", label: "2m calling", hz: 146_520_000, demod: "NFM", span: 400_000 },
   { id: "70cm", label: "70cm", hz: 446_000_000, demod: "NFM", span: 400_000 },

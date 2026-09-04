@@ -1,6 +1,7 @@
 import { RELEASE } from "./release-meta";
 import { PRESETS, type DemodMode, type SdrConfig, type Telemetry, type UsbState, type PipelineNative } from "./types";
 import { nativeHost, isNativeApk, nativeJson } from "./native";
+import { SCAN_BANKS, bankOf, channelsFor, scanChannelAt, type ScanState } from "./scanner";
 
 export type CliResult = { ok: boolean; text: string; data?: unknown };
 
@@ -22,6 +23,7 @@ export type CliContext = {
   usb: () => UsbState;
   tel: () => Telemetry;
   pipe: () => PipelineNative;
+  scan: () => ScanState;
   applyPreset: (id: string) => void;
   setCenterHz: (hz: number) => void;
   setDemod: (d: DemodMode) => void;
@@ -37,6 +39,11 @@ export type CliContext = {
   setPipeline: (on: boolean) => void;
   sealPipeline: () => void;
   rotatePipeline: () => void;
+  scanStart: () => void;
+  scanStop: () => void;
+  scanHold: () => void;
+  scanSkip: () => void;
+  scanSetBank: (bank: string) => void;
   scripts: () => ScriptDoc[];
   saveScript: (doc: ScriptDoc) => void;
   deleteScript: (name: string) => void;
@@ -50,8 +57,9 @@ sdr tune <mhz>         e.g. 98.1  146.52  7.2
 sdr demod WFM|NFM|AM|USB|LSB|CW|RAW
 sdr gain lna|vga <db>
 sdr listen on|off      speaker demod
-sdr preset <id>        fm_broadcast nws airband marine 2m 70cm gmrs am cb 20m_usb 40m_lsb 40m_cw adsb
+sdr preset <id>        fm_broadcast ksty nws sheriff airband marine 2m 70cm gmrs am cb 20m_usb 40m_lsb 40m_cw adsb
 sdr spectrum
+scan start|stop|next|hold|bank|list
 listen on|off
 capture [note]
 pipeline start|stop|seal|rotate|stats
@@ -59,9 +67,9 @@ script list|show|run|save|delete
 termux status|install|debian|run <cmd>
 tools                  JSON function defs for agents
 doctor
-Aliases: dslv-status dslv-listen dslv-mute dslv-tune dslv-capture dslv-sensors dslv-spectrum
+Aliases: dslv-status dslv-listen dslv-mute dslv-tune dslv-capture dslv-sensors dslv-spectrum dslv-scan
 Prefix ! to send a line to Termux (APK). Add --json for machine output.
-USB IQ is SECONDARY. Pi 5 remains Tier-1.`;
+USB IQ is SECONDARY. Pi 5 remains Tier-1. Analog scanner is RX-only.`;
 
 export const INSTALL_TERMUX = "curl -fsS http://127.0.0.1:8444/cli/install.sh | sh";
 export const INSTALL_DEBIAN = "curl -fsS http://127.0.0.1:8444/cli/install.sh | DEST=/usr/local/bin sh";
@@ -76,6 +84,7 @@ const ALIASES: Record<string, string> = {
   "dslv-sensors": "sensors",
   "dslv-spectrum": "sdr spectrum",
   "dslv-help": "help",
+  "dslv-scan": "scan start",
 };
 
 export const DEFAULT_SCRIPTS: ScriptDoc[] = [
@@ -103,6 +112,20 @@ export const DEFAULT_SCRIPTS: ScriptDoc[] = [
       { id: "2", op: "rx", arg: "on" },
     ],
   },
+  {
+    name: "fremont-scan",
+    steps: [
+      { id: "1", op: "scan-bank", arg: "all" },
+      { id: "2", op: "scan-start" },
+    ],
+  },
+  {
+    name: "wx-scan",
+    steps: [
+      { id: "1", op: "scan-bank", arg: "noaa" },
+      { id: "2", op: "scan-start" },
+    ],
+  },
 ];
 
 export const PALETTE: { op: string; label: string; arg?: string; ms?: number }[] = [
@@ -112,7 +135,9 @@ export const PALETTE: { op: string; label: string; arg?: string; ms?: number }[]
   { op: "listen", label: "Listen" },
   { op: "mute", label: "Mute" },
   { op: "rx", label: "RX on", arg: "on" },
-  { op: "scan", label: "Scan" },
+  { op: "scan", label: "OTG scan" },
+  { op: "scan-start", label: "Scan start" },
+  { op: "scan-skip", label: "Scan skip" },
   { op: "wait", label: "Wait", ms: 2000 },
   { op: "capture", label: "Capture" },
   { op: "pipeline", label: "Pipeline", arg: "start" },
@@ -182,6 +207,16 @@ export function stepToLine(step: ScriptStep): string {
       return `sdr rx ${step.arg ?? "on"}`;
     case "scan":
       return "sdr scan";
+    case "scan-start":
+      return "scan start";
+    case "scan-stop":
+      return "scan stop";
+    case "scan-skip":
+      return "scan next";
+    case "scan-hold":
+      return "scan hold";
+    case "scan-bank":
+      return `scan bank ${step.arg ?? "all"}`;
     case "wait":
       return `wait ${step.ms ?? 1000}`;
     case "capture":
@@ -267,6 +302,8 @@ export function runCli(line: string, ctx: CliContext): CliResult {
         return ok("capture sealed");
       case "sdr":
         return sdr(ctx, argv.slice(1));
+      case "scan":
+        return scanCmd(ctx, argv.slice(1));
       case "pipeline":
         return pipeline(ctx, argv[1] ?? "stats");
       case "script":
@@ -375,6 +412,53 @@ function sdr(ctx: CliContext, a: string[]): CliResult {
   }
 }
 
+function scanCmd(ctx: CliContext, a: string[]): CliResult {
+  const op = (a[0] ?? "status").toLowerCase();
+  if (op === "list" || op === "ls") {
+    const bank = bankOf(a[1] ?? ctx.scan().bank);
+    const list = channelsFor(bank);
+    const lines = list.map((c) => `${c.bank.padEnd(7)} ${(c.hz / 1e6).toFixed(4).padStart(10)}  ${c.demod.padEnd(4)}  ${c.label}`);
+    return ok(`${list.length} analog channels · ${bank}\n${lines.join("\n")}\nlisten-only. no P25 DTRS / ATSC / encrypted.`, list);
+  }
+  if (op === "bank") {
+    const bank = bankOf(a[1] ?? "all");
+    ctx.scanSetBank(bank);
+    return ok(`scan bank ${bank} · ${channelsFor(bank).length} channels`);
+  }
+  if (op === "start" || op === "on" || op === "run") {
+    ctx.scanStart();
+    return scanStatus(ctx, "SCAN start");
+  }
+  if (op === "stop" || op === "off") {
+    ctx.scanStop();
+    return scanStatus(ctx, "SCAN stop");
+  }
+  if (op === "next" || op === "skip" || op === "+") {
+    ctx.scanSkip();
+    return scanStatus(ctx, "SCAN skip");
+  }
+  if (op === "hold") {
+    ctx.scanHold();
+    return scanStatus(ctx, "SCAN hold");
+  }
+  if (op === "status" || op === "show") return scanStatus(ctx);
+  return bad("scan ops: start stop next hold bank list status");
+}
+
+function scanStatus(ctx: CliContext, prefix?: string): CliResult {
+  const s = ctx.scan();
+  const ch = scanChannelAt(s.bank, s.index);
+  const text = [
+    prefix,
+    `scan ${s.running ? (s.held ? "HOLD" : s.locked ? "LOCK" : "SEARCH") : "IDLE"}`,
+    `bank ${s.bank} #${s.index}`,
+    ch ? `${ch.label} ${(ch.hz / 1e6).toFixed(4)} MHz ${ch.demod}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return ok(text, { scan: s, channel: ch });
+}
+
 function pipeline(ctx: CliContext, op: string): CliResult {
   if (op === "start") ctx.setPipeline(true);
   else if (op === "stop") ctx.setPipeline(false);
@@ -437,6 +521,7 @@ function doctor(ctx: CliContext): CliResult {
     `version ${RELEASE.version}`,
     `demod ${ctx.sdr().demod} @ ${(ctx.sdr().centerHz / 1e6).toFixed(3)} MHz`,
     `usb ${ctx.usb().open ? ctx.usb().kind : "idle"}`,
+    `scan ${ctx.scan().running ? ctx.scan().bank : "idle"}`,
     `termux ${t?.termux ? "yes" : native ? "not seen" : "apk-only"}`,
     `install ${INSTALL_TERMUX}`,
   ];
@@ -503,6 +588,14 @@ export const TOOLS = [
     type: "object",
     properties: { name: { type: "string" } },
     required: ["name"],
+  }),
+  tool("dslv_scan", "Fremont analog listen-only scanner", {
+    type: "object",
+    properties: {
+      op: { type: "string", enum: ["start", "stop", "next", "hold", "list", "status"] },
+      bank: { type: "string", enum: SCAN_BANKS.map((b) => b.id) },
+    },
+    required: ["op"],
   }),
 ];
 

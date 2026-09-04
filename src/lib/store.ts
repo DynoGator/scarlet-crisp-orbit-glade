@@ -2,6 +2,17 @@ import { create } from "zustand";
 import { makeEnvelope, toRecord } from "./c2";
 import { generateSpectrum, seedTelemetry, spectrumStats, tickTelemetry } from "./sim";
 import {
+  applyChannelToSdr,
+  bankOf,
+  channelsFor,
+  DEFAULT_SCAN,
+  nextScanIndex,
+  scanChannelAt,
+  scanShouldLock,
+  type ScanBankId,
+  type ScanState,
+} from "./scanner";
+import {
   BINS,
   DEFAULT_PIPE,
   DEFAULT_SDR,
@@ -78,6 +89,7 @@ export interface AppState {
   captures: CaptureEvent[];
   usb: UsbState;
   pipe: PipelineNative;
+  scan: ScanState;
   setView: (v: ViewId) => void;
   hydrate: () => void;
   tick: () => void;
@@ -113,6 +125,11 @@ export interface AppState {
   usbRx: (on: boolean) => void;
   sealPipeline: () => void;
   rotatePipeline: () => void;
+  scanStart: () => void;
+  scanStop: () => void;
+  scanHold: () => void;
+  scanSkip: () => void;
+  scanSetBank: (bank: ScanBankId | string) => void;
 }
 
 function command(capability: string, parameters: Record<string, unknown>, result: string) {
@@ -146,6 +163,56 @@ function pushUsbConfig(sdr: SdrConfig) {
     );
   } catch {
     /* ignore */
+  }
+}
+
+function armListen(sdr: SdrConfig) {
+  const host = nativeHost();
+  if (!host?.listen) return;
+  try {
+    host.listen(JSON.stringify({ on: true, demod: sdr.demod, volume: sdr.volume, squelch: sdr.squelch, centerHz: sdr.centerHz }));
+  } catch {
+    /* ignore */
+  }
+}
+
+function applyScanTune(get: () => AppState, set: (p: Partial<AppState>) => void, index: number, bank: ScanBankId, extra?: Partial<ScanState>) {
+  const ch = scanChannelAt(bank, index);
+  if (!ch) return;
+  const sdr = applyChannelToSdr(get().sdr, ch);
+  const audio = true;
+  const nextSdr = { ...sdr, audio };
+  set({
+    sdr: nextSdr,
+    usb: { ...get().usb, listen: true },
+    scan: {
+      ...get().scan,
+      bank,
+      index,
+      locked: false,
+      lastAdvance: performance.now(),
+      hangUntil: 0,
+      ...extra,
+    },
+    tel: {
+      ...get().tel,
+      lastEvent: `SCAN ${ch.label} · ${ch.demod}`,
+    },
+    commands: [command("sdr.center_frequency.set", { hz: ch.hz, demod: ch.demod }, `scan ${ch.id}`), ...get().commands].slice(0, 40),
+  });
+  pushUsbConfig(nextSdr);
+  armListen(nextSdr);
+  if (isNativeApk() && !get().usb.rx) {
+    try {
+      const host = nativeHost();
+      if (host?.usbRx) {
+        if (!get().usb.open) host.usbOpen?.(hintFor(nextSdr.device));
+        host.usbRx("on");
+        set({ usb: { ...get().usb, rx: true, listen: true, source: "usb" } });
+      }
+    } catch {
+      /* pwa */
+    }
   }
 }
 
@@ -401,6 +468,7 @@ export const useApp = create<AppState>((set, get) => ({
   captures: [],
   usb: { ...DEFAULT_USB },
   pipe: { ...DEFAULT_PIPE },
+  scan: { ...DEFAULT_SCAN },
 
   setView: (view) => set({ view }),
 
@@ -462,19 +530,59 @@ export const useApp = create<AppState>((set, get) => ({
       nextTel.integrityFailed = pipe.integrityFailed;
       nextTel.pipelineActive = true;
     }
+
+    let scan = get().scan;
+    let sdrOut = sdr;
+    if (scan.running && !scan.held) {
+      const list = channelsFor(scan.bank);
+      if (list.length) {
+        const idx = ((scan.index % list.length) + list.length) % list.length;
+        const ch = list[idx];
+        const liveUsb = get().usb.rx && get().usb.source === "usb";
+        const nowMs = now;
+        const dwell = ch.dwellMs || scan.dwellMs;
+        const hit = scanShouldLock(ch, stats, scratch, sdrOut, get().usb.muted, liveUsb);
+        if (hit) {
+          scan = { ...scan, locked: true, hangUntil: nowMs + scan.hangMs };
+        } else if (scan.locked && nowMs >= scan.hangUntil) {
+          const next = nextScanIndex(scan.bank, idx, 1);
+          const nch = list[next];
+          sdrOut = { ...applyChannelToSdr(sdrOut, nch), audio: true };
+          scan = { ...scan, locked: false, index: next, lastAdvance: nowMs, hangUntil: 0 };
+          pushUsbConfig(sdrOut);
+          armListen(sdrOut);
+        } else if (!scan.locked && nowMs - scan.lastAdvance >= dwell) {
+          const next = nextScanIndex(scan.bank, idx, 1);
+          const nch = list[next];
+          sdrOut = { ...applyChannelToSdr(sdrOut, nch), audio: true };
+          scan = { ...scan, index: next, lastAdvance: nowMs, locked: false };
+          pushUsbConfig(sdrOut);
+          armListen(sdrOut);
+        }
+        const show = list[((scan.index % list.length) + list.length) % list.length];
+        if (show) {
+          nextTel.lastEvent = scan.locked
+            ? `SCAN LOCK ${show.label} · ${show.demod}`
+            : `SCAN ${show.label} · ${show.demod}`;
+        }
+      }
+    }
+
     if (get().usb.rx) {
       nextTel.halMode = "HARDWARE";
       nextTel.gpsLock = nextTel.pixel.lat != null;
       nextTel.timingHealthy = nextTel.gpsLock;
-      nextTel.lastEvent = get().usb.listen
-        ? `LISTEN ${sdr.demod} · ${(sdr.centerHz / 1e6).toFixed(3)} MHz`
-        : `USB ${get().usb.kind.toUpperCase()} RX`;
+      if (!scan.running) {
+        nextTel.lastEvent = get().usb.listen
+          ? `LISTEN ${sdrOut.demod} · ${(sdrOut.centerHz / 1e6).toFixed(3)} MHz`
+          : `USB ${get().usb.kind.toUpperCase()} RX`;
+      }
     } else if (mode === "standalone") {
       nextTel.halMode = "HARDWARE";
       nextTel.gpsLock = nextTel.pixel.lat != null;
       nextTel.timingHealthy = nextTel.gpsLock;
     }
-    set({ tel: nextTel });
+    set(sdrOut === sdr ? { tel: nextTel, scan } : { tel: nextTel, scan, sdr: sdrOut });
     liveTimer += dt;
     if (mode === "live" && liveTimer > 2) {
       liveTimer = 0;
@@ -495,6 +603,7 @@ export const useApp = create<AppState>((set, get) => ({
     } as SdrConfig;
     set({
       sdr,
+      scan: { ...get().scan, running: false, held: false, locked: false },
       commands: [
         command("sdr.center_frequency.set", { hz: p.hz }, `preset ${id}`),
         ...get().commands,
@@ -909,5 +1018,46 @@ export const useApp = create<AppState>((set, get) => ({
     set({
       commands: [command("pipeline.rotate_output", {}, "rotated"), ...get().commands].slice(0, 40),
     });
+  },
+
+  scanStart: () => {
+    const scan = get().scan;
+    const bank = scan.bank;
+    if (scan.running && (scan.held || scan.locked)) {
+      const next = nextScanIndex(bank, scan.index, 1);
+      applyScanTune(get, set, next, bank, { running: true, held: false, locked: false });
+      return;
+    }
+    applyScanTune(get, set, scan.index, bank, { running: true, held: false, locked: false });
+  },
+
+  scanStop: () => {
+    set({
+      scan: { ...get().scan, running: false, held: false, locked: false },
+      tel: { ...get().tel, lastEvent: "SCAN stop" },
+    });
+  },
+
+  scanHold: () => {
+    const scan = get().scan;
+    if (!scan.running) {
+      applyScanTune(get, set, scan.index, scan.bank, { running: true, held: true, locked: true });
+      return;
+    }
+    set({
+      scan: { ...scan, held: true, locked: true },
+      tel: { ...get().tel, lastEvent: "SCAN HOLD" },
+    });
+  },
+
+  scanSkip: () => {
+    const scan = get().scan;
+    const next = nextScanIndex(scan.bank, scan.index, 1);
+    applyScanTune(get, set, next, scan.bank, { running: scan.running || true, held: false, locked: false });
+  },
+
+  scanSetBank: (id) => {
+    const bank = bankOf(String(id));
+    applyScanTune(get, set, 0, bank, { running: get().scan.running, held: false, locked: false, bank });
   },
 }));

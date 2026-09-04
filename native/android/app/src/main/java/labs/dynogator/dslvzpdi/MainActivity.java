@@ -68,7 +68,7 @@ public class MainActivity extends Activity {
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         s.setGeolocationEnabled(true);
-        s.setUserAgentString(s.getUserAgentString() + " DynoGatorLabs-DSLV-ZPDI/5.8.0");
+        s.setUserAgentString(s.getUserAgentString() + " DynoGatorLabs-DSLV-ZPDI/5.9.0");
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         if (Build.VERSION.SDK_INT >= 33) {
             s.setAlgorithmicDarkeningAllowed(false);

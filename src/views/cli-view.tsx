@@ -60,6 +60,7 @@ export function CliView() {
       usb: () => get().usb,
       tel: () => get().tel,
       pipe: () => get().pipe,
+      scan: () => get().scan,
       applyPreset: (id) => get().applyPreset(id),
       setCenterHz: (hz) => get().setCenterHz(hz),
       setDemod: (d) => get().setDemod(d),
@@ -75,6 +76,11 @@ export function CliView() {
       setPipeline: (on) => get().setPipeline(on),
       sealPipeline: () => get().sealPipeline(),
       rotatePipeline: () => get().rotatePipeline(),
+      scanStart: () => get().scanStart(),
+      scanStop: () => get().scanStop(),
+      scanHold: () => get().scanHold(),
+      scanSkip: () => get().scanSkip(),
+      scanSetBank: (b) => get().scanSetBank(b),
       scripts: () => scripts,
       saveScript: (doc) => {
         setScripts((prev) => {

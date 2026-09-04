@@ -1,5 +1,6 @@
 import { HotSlider } from "@/components/hot-slider";
 import { Panel, Pill, Row } from "@/components/panel";
+import { ScannerPanel } from "@/components/scanner-panel";
 import { Button } from "@/components/ui/button";
 import { Waterfall } from "@/components/waterfall";
 import { isNativeApk } from "@/lib/native";
@@ -20,8 +21,8 @@ const DEMODS: DemodMode[] = ["WFM", "NFM", "AM", "USB", "LSB", "CW", "RAW"];
 const MODES: WaterfallMode[] = ["SWEEP", "NARROW", "SCOPE"];
 
 const PRESET_GROUPS: { label: string; ids: string[] }[] = [
-  { label: "Broadcast", ids: ["fm_broadcast", "fm_887", "fm_1073", "am_broadcast"] },
-  { label: "VHF / UHF", ids: ["nws", "airband", "marine", "2m_call", "70cm", "gmrs"] },
+  { label: "Broadcast", ids: ["fm_broadcast", "ksty", "fm_887", "fm_1073", "am_broadcast"] },
+  { label: "VHF / UHF", ids: ["nws", "sheriff", "airband", "marine", "2m_call", "70cm", "gmrs"] },
   { label: "HF", ids: ["cb", "20m_usb", "40m_lsb", "40m_cw"] },
   { label: "Data", ids: ["adsb"] },
 ];
@@ -119,6 +120,8 @@ export function SdrView() {
           </Button>
         </div>
       </Panel>
+
+      <ScannerPanel />
 
       <Panel title="Tune">
         <div className="mb-3 flex items-end justify-between">

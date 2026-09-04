@@ -26,6 +26,9 @@ export function OpsView() {
   const liveError = useApp((s) => s.liveError);
   const setCenterHz = useApp((s) => s.setCenterHz);
   const setView = useApp((s) => s.setView);
+  const scan = useApp((s) => s.scan);
+  const scanStart = useApp((s) => s.scanStart);
+  const scanStop = useApp((s) => s.scanStop);
   const native = isNativeApk();
   const liveUsb = usb.rx && usb.source === "usb";
   const listening = sdr.audio || usb.listen;
@@ -63,6 +66,9 @@ export function OpsView() {
           <Pill tone={tel.baseline === "LOCKED" ? "ok" : "warn"}>FSM {tel.baseline}</Pill>
           <Pill tone={listening ? "ok" : liveUsb ? "ok" : mode === "live" ? "primary" : "default"}>
             {listening ? "LISTEN" : liveUsb ? "USB RX" : mode === "live" ? "LIVE" : mode === "standalone" ? "HANDSET" : "SIM"}
+          </Pill>
+          <Pill tone={scan.running ? (scan.locked ? "ok" : scan.held ? "warn" : "primary") : "default"}>
+            {scan.running ? (scan.held ? "HOLD" : scan.locked ? "SCAN LOCK" : "SCAN") : "SCANNER"}
           </Pill>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -143,6 +149,9 @@ export function OpsView() {
           </Button>
           <Button variant={usb.rx ? "primary" : "outline"} onClick={() => usbRx(!usb.rx)} disabled={!native}>
             {usb.rx ? "USB RX on" : "USB RX"}
+          </Button>
+          <Button variant={scan.running ? "primary" : "outline"} onClick={() => (scan.running ? scanStop() : scanStart())}>
+            {scan.running ? (scan.locked ? "Scanner lock" : "Scanner on") : "Start scanner"}
           </Button>
           <Button variant="outline" onClick={() => setView("cli")}>
             CLI

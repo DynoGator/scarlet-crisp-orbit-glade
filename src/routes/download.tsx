@@ -66,7 +66,7 @@ function DownloadPage() {
         <li>Settings → Apps → Vanadium (or Files) → Install unknown apps → Allow.</li>
         <li>Open the APK. Install anyway if GrapheneOS warns about an unknown developer.</li>
         <li>App info → Network → Allow. Grant Location when DSLV-ZPDI asks.</li>
-        <li>RF → FM 98.1 → Listen. Speaker demod. Alpha is optional — Link → Handset if the Pi is dark.</li>
+        <li>RF → Scanner → Scan. Locks KJY81 / KSTY / Sheriff analog, applies demod + span. Listen on the speaker. Alpha optional — Link → Handset if the Pi is dark.</li>
         <li>CLI → Bridge → Copy installer → paste in Termux → Enter. Agents: <span className="font-mono text-foreground">dslv help</span>.</li>
       </ol>
 

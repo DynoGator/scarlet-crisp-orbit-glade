@@ -46,7 +46,7 @@ public class AlphaBridge {
             conn.setUseCaches(false);
             conn.setRequestMethod(method);
             conn.setRequestProperty("Accept", "application/json, text/plain, */*");
-            conn.setRequestProperty("User-Agent", "DynoGatorLabs-DSLV-ZPDI/5.8.0 (Pixel; NativeHost)");
+            conn.setRequestProperty("User-Agent", "DynoGatorLabs-DSLV-ZPDI/5.9.0 (Pixel; NativeHost)");
             if (bearer != null && !bearer.isEmpty()) {
                 conn.setRequestProperty("Authorization", "Bearer " + bearer);
             }

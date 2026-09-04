@@ -33,6 +33,11 @@ export function QuickMenu() {
   const usbOpen = useApp((s) => s.usbOpen);
   const applyPreset = useApp((s) => s.applyPreset);
   const setView = useApp((s) => s.setView);
+  const scan = useApp((s) => s.scan);
+  const scanStart = useApp((s) => s.scanStart);
+  const scanHold = useApp((s) => s.scanHold);
+  const scanSkip = useApp((s) => s.scanSkip);
+  const scanStop = useApp((s) => s.scanStop);
 
   useEffect(() => {
     if (!open) return;
@@ -72,6 +77,11 @@ export function QuickMenu() {
           <Switch label="Pipeline" checked={pipeline} onCheckedChange={(on) => setPipeline(on)} />
           <Switch label="Pause RF" checked={paused} onCheckedChange={() => togglePause()} />
           <Switch label="Hot zones" checked={hotZones} onCheckedChange={setHotZones} />
+          <Switch
+            label="Scanner"
+            checked={scan.running && !scan.held}
+            onCheckedChange={(on) => (on ? scanStart() : scanStop())}
+          />
 
           <div className="mt-3 space-y-2 border-t border-border pt-3">
             <HotSlider
@@ -105,11 +115,26 @@ export function QuickMenu() {
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-1.5">
-            {PRESETS.filter((p) => ["fm_broadcast", "nws", "2m_call", "airband"].includes(p.id)).map((p) => (
+            {PRESETS.filter((p) => ["ksty", "nws", "sheriff", "airband"].includes(p.id)).map((p) => (
               <Button key={p.id} size="sm" variant={preset === p.id ? "primary" : "outline"} onClick={() => applyPreset(p.id)}>
                 {p.label}
               </Button>
             ))}
+          </div>
+
+          <div className="mt-3 grid grid-cols-4 gap-1.5 border-t border-border pt-3">
+            <Button size="sm" className="px-1 text-[0.6875rem]" variant={scan.running && !scan.held ? "primary" : "outline"} onClick={scanStart}>
+              Scan
+            </Button>
+            <Button size="sm" className="px-1 text-[0.6875rem]" variant={scan.held ? "primary" : "outline"} onClick={scanHold}>
+              Hold
+            </Button>
+            <Button size="sm" className="px-1 text-[0.6875rem]" variant="outline" onClick={scanSkip}>
+              Skip
+            </Button>
+            <Button size="sm" className="px-1 text-[0.6875rem]" variant="outline" onClick={scanStop}>
+              Stop
+            </Button>
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-border pt-3">
